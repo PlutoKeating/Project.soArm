@@ -32,6 +32,8 @@ class ArmConfig:
     inward_limit: float = 0.10
     # 在本臂基座系里，“朝向另一只臂”是 +y 还是 -y
     inward_y_sign: float = 1.0
+    # 覆盖全局 home 里的个别关节。主要用于 wrist_roll：要让腕部相机画面是正的
+    home: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -155,7 +157,7 @@ class Config:
             "shoulder_lift": -75.0,
             "elbow_flex": 60.0,
             "wrist_flex": 10.0,
-            "wrist_roll": 0.0,
+            "wrist_roll": -90.0,  # 实测：腕部转到 -90° 时腕部相机画面是正的
             "gripper": 0.0,
         }
     )

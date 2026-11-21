@@ -56,7 +56,7 @@ class Rig:
         return self.ctl.kin.tip_and_pitch({j: self.ctl.arms[arm].pos[j] for j in ARM_JOINTS})
 
     def at_home(self, arm: str, tol: float = 1.5) -> bool:
-        return all(abs(self.ctl.arms[arm].pos[j] - self.cfg.home[j]) < tol for j in ARM_JOINTS)
+        return all(abs(self.ctl.arms[arm].pos[j] - self.ctl.arms[arm].home[j]) < tol for j in ARM_JOINTS)
 
 
 @pytest.fixture

@@ -54,7 +54,7 @@ def test_ik_roundtrip(kin):
             "shoulder_lift": rng.uniform(-90, 10),
             "elbow_flex": rng.uniform(0, 85),
             "wrist_flex": rng.uniform(-50, 50),
-            "wrist_roll": 0.0,
+            "wrist_roll": home["wrist_roll"],  # 腕部旋转不参与逆解，目标与种子取同一个值
         }
         tip, pitch = kin.tip_and_pitch(q)
         res = kin.ik(tip, pitch, {j: home[j] for j in ARM_JOINTS}, max_iters=80)

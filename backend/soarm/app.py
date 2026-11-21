@@ -208,7 +208,9 @@ def main() -> None:
         cfg.mock = True
     host, port = args.host or cfg.server.host, args.port or cfg.server.port
     logger.info("控制台地址 http://%s:%d  （mock=%s）", host, port, cfg.mock)
-    uvicorn.run(create_app(cfg), host=host, port=port, log_level="warning")
+    # 视频流和 WebSocket 是长连接，浏览器开着时不会自己断开。不设超时的话 Ctrl+C 后
+    # 服务会一直等它们，走不到“先收到休息位再释放力矩”的退出流程
+    uvicorn.run(create_app(cfg), host=host, port=port, log_level="warning", timeout_graceful_shutdown=2)
 
 
 if __name__ == "__main__":

@@ -76,6 +76,7 @@ class ArmRuntime:
     guided: dict[str, float] | None = None  # 第 3 步引导得到的关节角（不含腕部精调）
     paused_until: float = 0.0
     status: str = ""
+    home: dict[str, float] = field(default_factory=dict)  # 本臂的初始位
     limits: dict[str, tuple[float, float]] = field(default_factory=dict)  # 本臂生效的关节限位
     rest: dict[str, float] | None = None  # 本臂的休息位：上电时手臂自然停放的姿态
 
@@ -94,7 +95,10 @@ class Controller:
     ):
         self.cfg = cfg
         self.kin = ArmKinematics()
-        self.arms = {name: ArmRuntime(arm, cfg.arms[name]) for name, arm in arms.items()}
+        self.arms = {
+            name: ArmRuntime(arm, cfg.arms[name], home={**cfg.home, **cfg.arms[name].home})
+            for name, arm in arms.items()
+        }
         self.head = head
         self.head_target: dict[str, float] | None = None
         self.head_pos: dict[str, float] = {}
@@ -228,7 +232,7 @@ class Controller:
             for rt in self.arms.values():
                 self._reset_motion(rt)
                 if mode in ("follow", "fused") or (mode == "keyboard" and not self._in_workspace(rt)):
-                    self._start_goto(rt, self.home, "home")
+                    self._start_goto(rt, rt.home, "home")
             if mode == "fused" and self.calibration.head_preset and self.head_target is not None:
                 self.head_target = dict(self.calibration.head_preset)
             self.message = ""
@@ -255,7 +259,7 @@ class Controller:
             self.mode = "idle"
             for rt in self.arms.values():
                 self._reset_motion(rt)
-                target = self.home if pose == "home" else (rt.rest or self.cfg.rest)
+                target = rt.home if pose == "home" else (rt.rest or self.cfg.rest)
                 self._start_goto(rt, target, pose, release=release)
 
     def set_torque(self, enabled: bool) -> None:
@@ -505,7 +509,7 @@ class Controller:
         rt.pan_off = float(np.clip(rt.pan_off, *pan_range))
         rt.tilt_off = float(np.clip(rt.tilt_off, *tilt_range))
         # 再按本臂关节限位收紧，避免偏转量在限位之外继续累积
-        base = rt.guided or self.home
+        base = rt.guided or rt.home
         for attr, joint in (("pan_off", "shoulder_pan"), ("tilt_off", "wrist_flex")):
             lo, hi = rt.limits[joint]
             setattr(rt, attr, float(np.clip(getattr(rt, attr), lo - base[joint], hi - base[joint])))
@@ -526,7 +530,7 @@ class Controller:
                 rt.status = "未见手，回初始位" if (rt.pan_off or rt.tilt_off) else "等待手出现"
             else:
                 rt.status = "短暂丢失，保持"
-        desired = dict(self.home)
+        desired = dict(rt.home)
         desired["shoulder_pan"] += rt.pan_off
         desired["wrist_flex"] += rt.tilt_off
         return desired
@@ -582,7 +586,7 @@ class Controller:
             rt.tilt_off = _approach(rt.tilt_off, 0.0, step)
 
         if rt.guided is None:
-            rt.guided = {j: self.home[j] for j in ARM_JOINTS}
+            rt.guided = {j: rt.home[j] for j in ARM_JOINTS}
         point = self._fused_point if self._fused_arm == name else None
         if point is not None:
             rt.lost_since = None
@@ -603,7 +607,7 @@ class Controller:
                 move *= max_move / np.linalg.norm(move)
             cand_pitch = _approach(rt.cart.pitch, pitch_goal, self.cfg.keyboard.pitch_speed_deg_s * dt)
             # 位置和俯仰一起走不通时分别尝试，避免目标略超可达范围就整体卡住
-            seed = {**rt.guided, "wrist_roll": 0.0}
+            seed = rt.guided
             for pos, pitch in (
                 (rt.cart.pos + move, cand_pitch),
                 (rt.cart.pos + move, rt.cart.pitch),
@@ -622,13 +626,13 @@ class Controller:
             rt.lost_since = rt.lost_since or now
             if now - rt.lost_since > fc.lost_timeout_s:
                 step = s.home_speed_deg_s * dt
-                rt.guided = {j: _approach(rt.guided[j], self.home[j], step) for j in ARM_JOINTS}
+                rt.guided = {j: _approach(rt.guided[j], rt.home[j], step) for j in ARM_JOINTS}
                 rt.cart = None
                 rt.status = "等待手出现"
             else:
                 rt.status = "短暂丢失，保持"
 
-        desired = dict(self.home)
+        desired = dict(rt.home)
         desired.update(rt.guided)
         desired["shoulder_pan"] += rt.pan_off
         desired["wrist_flex"] += rt.tilt_off
