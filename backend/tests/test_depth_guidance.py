@@ -728,3 +728,24 @@ def test_auto_solve_estimates_wrist_offset_when_an_extrinsic_exists(tmp_path):
     assert loaded.wrist_offset == pytest.approx((result["yaw_right_deg"], result["pitch_up_deg"]), abs=0.01)
     assert np.allclose(loaded.T_base_cam, T, atol=1e-5)
     assert rig.ctl.snapshot()["arms"]["left"]["wrist_offset_deg"] == pytest.approx([3.0, -18.0], abs=2.0)
+
+
+def test_rebase_moves_extrinsics_to_the_new_tilt_and_is_idempotent():
+    """相机从低头 59° 抬到 25°：换算后的外参应把同一个基座系里的点映到新相机系下的正确位置。"""
+    from soarm.calib import ArmExtrinsic, Calibration, _rotation_from_up
+
+    def up(pitch_deg):
+        p = np.radians(pitch_deg)
+        return np.array([0.0, -np.cos(p), -np.sin(p)])
+
+    def truth(pitch_deg):
+        T = np.eye(4)
+        T[:3, :3], T[:3, 3] = _rotation_from_up(up(pitch_deg), 0.0), (0.18, 0.17, 0.42)
+        return T
+
+    cal = Calibration(arms={"right": ArmExtrinsic(truth(59.0), 0.01, 16, up(59.0))})
+    turned = cal.rebase(up(25.0))
+    assert turned["right"] == pytest.approx(34.0, abs=0.01)
+    assert np.allclose(cal.arms["right"].T_base_cam, truth(25.0), atol=1e-6)
+    assert cal.rebase(up(25.0))["right"] == pytest.approx(0.0, abs=1e-3)  # 重复执行不累加
+    assert np.allclose(cal.arms["right"].T_base_cam, truth(25.0), atol=1e-6)

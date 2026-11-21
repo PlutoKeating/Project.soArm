@@ -6,6 +6,7 @@ import argparse
 import glob
 import os
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -214,6 +215,52 @@ def cmd_head_watch(args: argparse.Namespace) -> int:
             time.sleep(0.1)
     except KeyboardInterrupt:
         print()
+    finally:
+        bus.close()
+    return 0
+
+
+def cmd_head_set(args: argparse.Namespace) -> int:
+    """把云台慢慢转到指定刻度并保持力矩。断电重新上电后云台是松的，用它回到工作姿态。"""
+    import rustypot
+
+    cfg = load_config(args.config)
+    port = args.port or cfg.head.port
+    if not port:
+        sys.exit("请用 --port 指定云台串口（soarm-tools scan 里只有 2 个舵机的那个），或在配置里填写 head.port")
+    ids = {"pan": args.pan_id or cfg.head.pan.id, "tilt": args.tilt_id or cfg.head.tilt.id}
+    targets = {"pan": args.pan, "tilt": args.tilt}
+    for axis, tick in targets.items():
+        if tick is not None and not 200 <= tick <= 3895:
+            sys.exit(f"{axis} 的目标刻度 {tick} 太靠近编码器回绕点（0 / 4095），拒绝执行")
+    _, definition = rustypot.find_model("sts3215")
+    bus = rustypot.Bus(port, 1_000_000, 0.05, {i: definition for i in ids.values()})
+    try:
+        state = {}
+        for axis, i in ids.items():
+            state[axis] = bus.read_register(i, "present_position", 2)
+            holding = bool(bus.read_register(i, "torque_enable", 2))
+            print(f"{axis}(ID {i})：当前刻度 {state[axis]}，{'力矩保持中' if holding else '无力矩'}")
+        if all(t is None for t in targets.values()):
+            print("没有给 --pan / --tilt，只读取不动作。")
+            return 0
+        step = max(1, round(args.speed * 4096 / 360 / 20))  # 每 50 ms 走的刻度数
+        for axis, i in ids.items():
+            # 先把目标对齐到当前位置再上力矩，云台不会跳
+            bus.write_register(i, "goal_position", state[axis])
+            bus.write_register(i, "torque_enable", 1)
+        moving = {axis: t for axis, t in targets.items() if t is not None}
+        while moving:
+            for axis in list(moving):
+                delta = moving[axis] - state[axis]
+                state[axis] += max(-step, min(step, delta))
+                bus.write_register(ids[axis], "goal_position", state[axis])
+                if state[axis] == moving[axis]:
+                    del moving[axis]
+            time.sleep(0.05)
+        time.sleep(0.5)
+        for axis, i in ids.items():
+            print(f"{axis}(ID {i})：到位刻度 {bus.read_register(i, 'present_position', 2)}，力矩保持")
     finally:
         bus.close()
     return 0
@@ -528,6 +575,66 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
         lab.release()
 
 
+def cmd_tilt_calib(args: argparse.Namespace) -> int:
+    """云台点头到工作角度后，把在标定角度下得到的外参换算过来。
+
+    body-calib 要在相机低头较多、看得见手臂的角度下做；展示时相机要抬起来看观众伸手的区域。
+    两个角度之间相机只是点了头，转过的角度由两次测到的地面方向之差得到。需要深度相机没有被别的程序占用。
+    """
+    import numpy as np
+
+    from .calib import Calibration, fit_floor_normal
+    from .perception.cameras import CameraWorker
+
+    cfg = load_config(args.config)
+    path = cfg.path(cfg.calibration_dir) / "extrinsics.yaml"
+    calibration = Calibration.load(path)
+    if not any(e.up_cam is not None for e in calibration.arms.values()):
+        sys.exit(f"{path} 里没有带地面方向的外参，请先运行 soarm-tools body-calib")
+    head_cfg = cfg.cameras[cfg.head_camera]
+    head_cfg.detect = False
+    pitch = np.radians(args.pitch_down)
+    expected = np.array([0.0, -np.cos(pitch), -np.sin(pitch)])  # 相机光学系：x 右、y 下、z 前
+    worker = CameraWorker(cfg.head_camera, head_cfg, cfg.detector, lambda: None)
+    worker.start()
+    try:
+        ups, last = [], 0.0
+        deadline = time.monotonic() + 30
+        while len(ups) < args.frames and time.monotonic() < deadline:
+            latest = worker.latest()
+            if latest is None or worker.intrinsics is None or latest[2] <= last:
+                time.sleep(0.05)
+                continue
+            last = latest[2]
+            intr = worker.intrinsics
+            try:
+                up, _ = fit_floor_normal(latest[1], (intr.fx, intr.fy, intr.cx, intr.cy), expected_up=expected)
+            except ValueError:
+                continue
+            ups.append(up)
+            time.sleep(0.2)
+    finally:
+        worker.stop()
+    if len(ups) < max(3, args.frames // 2):
+        sys.exit(f"只有 {len(ups)} 帧找到了地面（{worker.error or '地面可能被挡住了'}），不换算")
+    up_now = np.median(np.array(ups), axis=0)
+    up_now /= np.linalg.norm(up_now)
+    measured = float(np.degrees(np.arcsin(-up_now[2])))
+    print(f"由地面测得：相机低头 {measured:.1f}°（{len(ups)} 帧的中位数）")
+    if abs(measured - args.pitch_down) > 8.0:
+        sys.exit(f"与预期的 {args.pitch_down:.0f}° 相差太多，多半把别的平面认成了地面，不换算。"
+                 "请确认云台角度，并用 --pitch-down 给出大致的低头角度")
+    for name, deg in calibration.rebase(up_now).items():
+        t = calibration.arms[name].T_base_cam[:3, 3]
+        print(f"  {name}：外参转过 {deg:.1f}°，相机位置 ({t[0]:.3f}, {t[1]:.3f}, {t[2]:.3f}) 不变")
+    if args.dry_run:
+        print("演练：不保存")
+    else:
+        calibration.save(path)
+        print(f"已保存到 {path}")
+    return 0
+
+
 def cmd_watchdog(args: argparse.Namespace) -> int:
     """无人值守看门狗：发现明显异常就让机械臂收到休息位、释放力矩并急停。"""
     from .watchdog import run
@@ -545,7 +652,7 @@ def main() -> None:
     p.set_defaults(func=cmd_scan)
 
     p = sub.add_parser("cameras", help="列出相机并保存快照")
-    p.add_argument("--out", default="/tmp/soarm-cameras", help="快照保存目录")
+    p.add_argument("--out", default=str(Path(tempfile.gettempdir()) / "soarm-cameras"), help="快照保存目录")
     p.set_defaults(func=cmd_cameras)
 
     p = sub.add_parser("calibrate", help="运行 LeRobot 标准校准流程（一般不需要）")
@@ -577,6 +684,12 @@ def main() -> None:
     p.add_argument("--dry-run", action="store_true", help="只采集和求解，不保存外参")
     p.set_defaults(func=cmd_body_calib)
 
+    p = sub.add_parser("tilt-calib", help="云台点头到工作角度后，把外参换算到当前姿态")
+    p.add_argument("--pitch-down", type=float, default=25.0, help="相机此刻大致低头多少度（用来在画面里认出地面）")
+    p.add_argument("--frames", type=int, default=12)
+    p.add_argument("--dry-run", action="store_true", help="只测量和打印，不保存")
+    p.set_defaults(func=cmd_tilt_calib)
+
     p = sub.add_parser("watchdog", help="无人值守看门狗：异常时收手、释放力矩并急停")
     p.add_argument("--url", default="http://127.0.0.1:8000", help="运行中控制台的地址")
     p.add_argument("--unit", default="soarm-console", help="控制台的 systemd 用户服务名；留空则不监视服务重启")
@@ -586,6 +699,15 @@ def main() -> None:
 
     p = sub.add_parser("head-watch", help="释放云台力矩并显示原始刻度")
     p.set_defaults(func=cmd_head_watch)
+
+    p = sub.add_parser("head-set", help="把云台慢慢转到指定刻度并保持力矩；不给目标时只读取")
+    p.add_argument("--port", help="云台串口，默认用配置里的 head.port")
+    p.add_argument("--pan", type=int, help="左右舵机的目标刻度")
+    p.add_argument("--tilt", type=int, help="俯仰舵机的目标刻度")
+    p.add_argument("--pan-id", type=int, help="左右舵机的 ID，默认用配置里的 head.pan.id")
+    p.add_argument("--tilt-id", type=int, help="俯仰舵机的 ID，默认用配置里的 head.tilt.id")
+    p.add_argument("--speed", type=float, default=15.0, help="转动速度（度/秒）")
+    p.set_defaults(func=cmd_head_set)
 
     args = parser.parse_args()
     sys.exit(args.func(args))

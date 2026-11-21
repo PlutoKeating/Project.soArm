@@ -553,6 +553,23 @@ class Calibration:
         }
         return cls(head_preset=data.get("head_preset"), arms=arms)
 
+    def rebase(self, up_now: np.ndarray) -> dict[str, float]:
+        """云台点头到新的俯仰后，把每只臂的外参换算到当前姿态。up_now 是此刻地面法线在相机系下的方向。
+
+        返回每只臂换算过的角度（度）。换算后外参里记录的地面方向也更新为 up_now，所以重复执行不会累加。
+        没有记录地面方向的外参（手动点选标定的）无法换算，原样保留。
+        """
+        up_now = up_now / np.linalg.norm(up_now)
+        turned = {}
+        for name, ext in self.arms.items():
+            if ext.up_cam is None:
+                continue
+            cos = float(np.clip(up_now @ (ext.up_cam / np.linalg.norm(ext.up_cam)), -1.0, 1.0))
+            turned[name] = float(np.degrees(np.arccos(cos)))
+            ext.T_base_cam = ext.at(up_now)
+            ext.up_cam = up_now.copy()
+        return turned
+
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         data = {
