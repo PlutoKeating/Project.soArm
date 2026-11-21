@@ -34,6 +34,7 @@ soarm/
   assets/so101_new_calib.urdf   仅含运动学的 SO-101 URDF
   control/controller.py   模式状态机、三种模式、安全处理
   control/geometry.py     腕部相机视线与指向偏转量的几何换算
+  control/filters.py      One Euro 自适应滤波与二阶平滑跟踪
   perception/cameras.py   相机采集线程、主手锁定、标注
   perception/hand.py      手部检测接口与 MediaPipe 实现
   robot/base.py           Arm / Head 抽象接口
@@ -51,6 +52,7 @@ uv run pytest
 
 - `test_kinematics.py`：正逆解往返、初始位与休息位合理性、外参求解。
 - `test_controller.py`：用模拟臂和假相机逐拍驱动控制器，覆盖三种模式与急停、限速、工作空间、受阻让位、单臂停用、中柱避让、两臂独立跟随与可选的单臂跟随。
+- `test_smooth_follow.py` 与 `follow_sim.py`：滤波与平滑跟踪的单元测试；带检测噪声、观测延迟和舵机滞后的闭环模拟，对比新旧跟随控制器。
 - `test_cameras.py`：相机线程在视野里择优选手与锁定的逻辑。
 - `test_depth_guidance.py`：视线几何、外参自动求解（含噪声与错配样本）、按真实几何成像的合成场景下的深度引导与自动标定。
 - `test_watchdog.py`：看门狗的各项判定（含不该误报的情况），以及对着模拟控制台走一遍安全停下。

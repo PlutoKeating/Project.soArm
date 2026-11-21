@@ -102,13 +102,30 @@ class KeyboardConfig:
 class FollowConfig:
     """第 2 步：腕部相机只对准、不调距离。"""
 
+    # 跟随控制器。smooth：自适应滤波 + 加速度连续的二阶跟踪；legacy：固定权重混合 + 比例限速
+    controller: str = "smooth"
+    # ---- smooth 控制器的参数 ----
+    filter_min_cutoff: float = 0.8  # 手几乎不动时的滤波截止频率（Hz）。越小越稳，但慢动作的滞后越大
+    filter_beta: float = 0.05  # 截止频率随手的角速度升高的速率（Hz 每 度/秒）。越大快动作越跟手
+    filter_d_cutoff: float = 3.0  # 估计角速度时用的截止频率（Hz）
+    soft_deadzone: float = 0.015  # 归一化画面坐标内的小死区。滤波已经压住了噪声，不需要大的死区
+    # 估计出的角速度低于第一个值时完全不用它，高于第二个值时全额使用，中间平滑过渡（度/秒）。
+    # 手静止时的“速度”全是检测噪声的差分，拿它做预判和前馈只会让手臂抖
+    velocity_gate_deg_s: tuple[float, float] = (12.0, 30.0)
+    # 按角速度向前预判的角度上限，0 表示不预判。模拟里：不预判时时间滞后约 190 ms；上限 4.5° 时约
+    # 155 ms、手掉头处冲过头约 1.5°；上限 10° 时约 100 ms，但冲过头 7°、最大偏差反而变大
+    max_lead_deg: float = 4.5
+    smooth_time: float = 0.08  # 二阶跟踪的时间常数（秒）。越小追得越紧
+    max_accel_deg_s2: float = 2000.0  # 指令角加速度上限
+    return_time: float = 0.5  # 回初始位时的时间常数（秒）
+    # ---- legacy 控制器的参数 ----
     gain: float = 9.0  # 目标角到指令角的刚度（1/秒），越大越跟手，过大会抖
     deadzone: float = 0.05  # 归一化画面坐标（半幅为 1）内的死区
     smoothing: float = 0.7  # 新一帧观测占的权重，越大越跟手，越小越稳
     max_speed_deg_s: float = 150.0
     # 像素误差换算成角度后打的折扣。视场角是估计值，略小于 1 可避免估大了导致过冲
     aim_scale: float = 0.85
-    lead_s: float = 0.08  # 按手的角速度向前预判的时间，用来抵消检测和舵机的延迟
+    lead_s: float = 0.08  # legacy：在观测延迟之外再向前预判的时间。smooth 只补观测延迟，不用这一项
     coast_s: float = 0.45  # 手出画面后沿原方向继续追的时间，便于重新找到
     pan_range_deg: tuple[float, float] = (-70.0, 70.0)  # 相对初始位的偏转范围
     tilt_range_deg: tuple[float, float] = (-35.0, 40.0)

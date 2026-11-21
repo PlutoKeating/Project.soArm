@@ -30,6 +30,7 @@ from ..calib import (
 )
 from ..config import ArmConfig, Config
 from ..kinematics import ARM_JOINTS, IK_JOINTS, ArmKinematics
+from .filters import OneEuroFilter, track_second_order
 from .geometry import aim_offsets, wrist_ray
 from ..perception.cameras import CameraWorker
 from ..perception.hand import view_quality
@@ -71,6 +72,51 @@ class CartTarget:
 
 
 @dataclass
+class FollowMetrics:
+    """跟随质量的累计度量，用来比较不同控制器。只在腕部相机看着手时累计。
+
+    pixel_error：手偏离画面中心的角度（度），越小说明跟得越紧。
+    roughness：指令角加速度的均方根（度/秒²），越小说明动作越顺、越不抖。
+    lost_events：从“看着手”变成“看不到”的次数。
+    """
+
+    tracking_s: float = 0.0
+    error_sum: float = 0.0
+    error_count: int = 0
+    accel_sq_sum: float = 0.0
+    accel_count: int = 0
+    lost_events: int = 0
+    _prev: np.ndarray | None = None
+    _prev_vel: np.ndarray | None = None
+
+    def observe(self, error_deg: float) -> None:
+        self.error_sum += error_deg
+        self.error_count += 1
+
+    def command(self, offsets: np.ndarray, dt: float, tracking: bool) -> None:
+        if not tracking or dt <= 0:
+            self._prev = self._prev_vel = None
+            return
+        self.tracking_s += dt
+        if self._prev is not None:
+            vel = (offsets - self._prev) / dt
+            if self._prev_vel is not None:
+                self.accel_sq_sum += float(np.sum(((vel - self._prev_vel) / dt) ** 2))
+                self.accel_count += 1
+            self._prev_vel = vel
+        self._prev = np.array(offsets, float)
+
+    def summary(self) -> dict:
+        return {
+            "tracking_s": round(self.tracking_s, 1),
+            "pixel_error_deg": round(self.error_sum / self.error_count, 2) if self.error_count else None,
+            "roughness_deg_s2": round(float(np.sqrt(self.accel_sq_sum / self.accel_count)), 0) if self.accel_count else None,
+            "lost_events": self.lost_events,
+            "lost_per_min": round(self.lost_events / (self.tracking_s / 60.0), 1) if self.tracking_s > 5 else None,
+        }
+
+
+@dataclass
 class ArmRuntime:
     arm: Arm
     cfg: ArmConfig
@@ -93,6 +139,9 @@ class ArmRuntime:
     aim: np.ndarray | None = None  # 手所在方向对应的偏转量 (pan, tilt)，度
     aim_vel: np.ndarray = field(default_factory=lambda: np.zeros(2))  # 上述方向的角速度，度/秒
     aim_t: float = 0.0  # 最近一次用于更新 aim 的观测时刻
+    aim_filter: OneEuroFilter | None = None  # smooth 控制器：对 aim 做自适应滤波
+    off_vel: np.ndarray = field(default_factory=lambda: np.zeros(2))  # 偏转量指令的角速度，度/秒
+    was_tracking: bool = False
     enabled: bool = True  # 停用的臂在任何模式下都只保持当前位置
     lent: bool = False  # 已借给开发程序：本进程松开了串口，舵机力矩保持
     home: dict[str, float] = field(default_factory=dict)  # 本臂的初始位
@@ -140,6 +189,7 @@ class Controller:
         self._follow_arm: str | None = None  # 腕部跟随模式下当前负责跟随的臂
         self._follow_rival: tuple[str, float] | None = None  # (候选臂, 开始领先的时刻)
         self._follow_lost_at: float | None = None  # 当前跟随臂开始看不到手的时刻
+        self.follow_metrics: dict[tuple[str, str], FollowMetrics] = {}  # (臂名, 控制器名) -> 累计度量
         # 深度引导：每只臂“要对准深度相机看到的手”所需的 (偏转量, 观测时刻, 转角代价)
         self._cues: dict[str, tuple[np.ndarray, float, float]] = {}
         self._cue_arm: str | None = None  # 当前由深度引导带着转的那只臂（至多一只）
@@ -405,6 +455,8 @@ class Controller:
         rt.aim = None
         rt.aim_vel = np.zeros(2)
         rt.aim_t = 0.0
+        rt.aim_filter = None
+        rt.off_vel = np.zeros(2)
         rt.hist.clear()
 
     def _start_goto(self, rt: ArmRuntime, pose: dict[str, float], name: str, release: bool = False) -> None:
@@ -492,7 +544,8 @@ class Controller:
             except Exception as e:
                 rt.arm.error = f"通信失败: {e}"
                 rt.arm.connected = False
-                logger.error("机械臂 %s 通信失败，已标记为断开: %s", name, e)
+                # 带上完整的调用栈：这里也会接住程序自身的错误，不能让它只显示成一句“通信失败”
+                logger.exception("机械臂 %s 处理失败，已标记为断开: %s", name, e)
         self._tick_head(keys, dt)
         self._update_overlays()
 
@@ -722,6 +775,22 @@ class Controller:
         best = min(rt.hist, key=lambda h: abs(h[0] - t))
         return np.array([best[1], best[2]])
 
+    def _metrics(self, rt: ArmRuntime) -> FollowMetrics:
+        key = (rt.arm.name, self.cfg.follow.controller)
+        if key not in self.follow_metrics:
+            self.follow_metrics[key] = FollowMetrics()
+        return self.follow_metrics[key]
+
+    def set_follow_controller(self, name: str) -> None:
+        """运行中切换跟随控制器，用于在同一套硬件上对比。"""
+        if name not in ("smooth", "legacy"):
+            raise ValueError(f"未知的跟随控制器 {name}")
+        with self._lock:
+            self.cfg.follow.controller = name
+            for rt in self.arms.values():
+                rt.aim_filter = None
+                rt.off_vel = np.zeros(2)
+
     def _pointing_mode(self) -> bool:
         """当前是否在用“转动对准”的方式跟随：腕部跟随，或指向式的深度引导。"""
         return self.mode == "follow" or (self.mode == "fused" and not self.cfg.fused.reach)
@@ -924,6 +993,7 @@ class Controller:
             hand = None
         lo, hi = self._offset_limits(rt)
         current = np.array([rt.pan_off, rt.tilt_off])
+        smooth = f.controller == "smooth"
 
         # 观测来源：优先用自己的腕部相机；它看不到时，用深度相机给的引导
         observed, observed_t, guided = None, 0.0, False
@@ -931,9 +1001,12 @@ class Controller:
             if hand.t > rt.aim_t:
                 # 像素误差 -> 角度误差 -> 手所在方向对应的偏转量
                 e = np.array([(hand.cx - 0.5) * 2.0, (hand.cy - 0.5) * 2.0])
-                e = np.sign(e) * np.maximum(0.0, np.abs(e) - f.deadzone)
                 hfov = cam.cfg.hfov_deg
-                err_deg = e * np.array([hfov / 2.0, hfov * self._aspect(cam) / 2.0]) * f.aim_scale
+                half_fov = np.array([hfov / 2.0, hfov * self._aspect(cam) / 2.0])
+                self._metrics(rt).observe(float(np.hypot(*(e * half_fov))))
+                deadzone = f.soft_deadzone if smooth else f.deadzone
+                e = np.sign(e) * np.maximum(0.0, np.abs(e) - deadzone)
+                err_deg = e * half_fov * f.aim_scale
                 # 手在画面右侧 -> 向右转（方位角减小）；手在画面下方 -> 低头（俯仰角减小）
                 signs = np.array([self._pan_dir * rt.cfg.follow_pan_sign, self._tilt_dir * rt.cfg.follow_tilt_sign])
                 observed = np.clip(self._measured_offset_at(rt, hand.t) - err_deg * signs, lo, hi)
@@ -945,7 +1018,21 @@ class Controller:
                 if cue[1] > rt.aim_t:
                     observed, observed_t = np.clip(cue[0], lo, hi), cue[1]
 
-        if observed is not None:
+        if observed is not None and smooth:
+            # 自适应滤波：手慢时滤得重（压住检测噪声），手快时滤得轻（不滞后），并给出平滑的角速度
+            if rt.aim_filter is None or rt.aim is None:
+                rt.aim_filter = OneEuroFilter(f.filter_min_cutoff, f.filter_beta, f.filter_d_cutoff)
+            rt.aim = rt.aim_filter.update(observed, observed_t).copy()
+            # 速度的可信度门限：很慢时当作 0，足够快时才全额采用
+            raw_vel = rt.aim_filter.velocity
+            speed = float(np.linalg.norm(raw_vel))
+            g_lo, g_hi = f.velocity_gate_deg_s
+            x = float(np.clip((speed - g_lo) / max(g_hi - g_lo, 1e-6), 0.0, 1.0))
+            trust = x * x * (3.0 - 2.0 * x)
+            rt.aim_vel = np.clip(raw_vel * trust, -f.max_speed_deg_s, f.max_speed_deg_s)
+            rt.aim_t = observed_t
+            rt.lost_since = None
+        elif observed is not None:
             if rt.aim is None:
                 rt.aim, rt.aim_vel = observed, np.zeros(2)
             else:
@@ -968,7 +1055,12 @@ class Controller:
             logger.info("深度引导命中 %s：腕部画面里手在 (%.2f, %.2f)", name, hand.cx, hand.cy)
 
         if (hand is not None or guided) and rt.aim is not None:
-            goal = rt.aim + rt.aim_vel * (now - rt.aim_t + f.lead_s)
+            if smooth:
+                # 只把观测的延迟补回来（手在这段时间里又走了多远），并限制幅度
+                lead = np.clip(rt.aim_vel * (now - rt.aim_t), -f.max_lead_deg, f.max_lead_deg)
+            else:
+                lead = rt.aim_vel * (now - rt.aim_t + f.lead_s)
+            goal = rt.aim + lead
             on_target = float(np.max(np.abs(goal - current))) < 1.0
             if guided:
                 rt.status = "深度引导·已对准" if on_target else "深度引导"
@@ -991,10 +1083,31 @@ class Controller:
                 goal, rt.aim = np.zeros(2), None
                 rt.status = "未见手，回初始位" if float(np.max(np.abs(current))) > 0.5 else "等待手出现"
 
+        tracking = hand is not None and rt.aim is not None
+        metrics = self._metrics(rt)
+        if rt.was_tracking and not tracking and not yielding:
+            metrics.lost_events += 1
+        rt.was_tracking = tracking
+
         returning = hand is None and not guided and (yielding or rt.aim is None)
         top = self.cfg.safety.home_speed_deg_s if returning else f.max_speed_deg_s
-        rate = np.clip(f.gain * (np.clip(goal, lo, hi) - current), -top, top)
-        rt.pan_off, rt.tilt_off = (float(v) for v in np.clip(current + rate * dt, lo, hi))
+        goal = np.clip(goal, lo, hi)
+        if smooth:
+            # 加速度连续的二阶跟踪：速度不跳变、不超调；跟随时带上目标角速度作前馈
+            target_vel = rt.aim_vel if (hand is not None or guided) and rt.aim is not None else np.zeros(2)
+            new, rt.off_vel = track_second_order(
+                current, rt.off_vel, goal, target_vel, dt,
+                f.return_time if returning else f.smooth_time, top, f.max_accel_deg_s2,
+            )
+            clipped = np.clip(new, lo, hi)
+            rt.off_vel = np.where(clipped != new, 0.0, rt.off_vel)  # 顶到限位就停，不带着速度撞
+            new = clipped
+        else:
+            rate = np.clip(f.gain * (goal - current), -top, top)
+            new = np.clip(current + rate * dt, lo, hi)
+            rt.off_vel = (new - current) / max(dt, 1e-3)
+        metrics.command(new, dt, tracking)
+        rt.pan_off, rt.tilt_off = float(new[0]), float(new[1])
         desired = dict(rt.home)
         desired["shoulder_pan"] += rt.pan_off
         desired["wrist_flex"] += rt.tilt_off
@@ -1237,6 +1350,10 @@ class Controller:
                 "head": head,
                 "cameras": cams,
                 "head_camera": self.cfg.head_camera,
+                "follow_controller": self.cfg.follow.controller,
+                "follow_stats": {
+                    f"{arm}:{ctrl}": m.summary() for (arm, ctrl), m in sorted(self.follow_metrics.items())
+                },
                 "guidance_hits": list(self.guidance_hits)[-20:],
                 "depth_guidance_ready": self.mode == "fused" and bool(self.calibration.arms)
                 and self._camera_pose_trusted(self._tick_now),

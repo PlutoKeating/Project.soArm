@@ -51,6 +51,10 @@ class ArmBody(BaseModel):
     arm: str
 
 
+class ControllerBody(BaseModel):
+    controller: str
+
+
 class ArmEnableBody(BaseModel):
     arm: str
     enabled: bool
@@ -147,6 +151,11 @@ def create_app(cfg: Config) -> FastAPI:
     @app.post("/api/arm/enable")
     def post_arm_enable(body: ArmEnableBody):
         command(controller.set_arm_enabled, body.arm, body.enabled)
+        return {"ok": True}
+
+    @app.post("/api/follow/controller")
+    def post_follow_controller(body: ControllerBody):
+        command(controller.set_follow_controller, body.controller)
         return {"ok": True}
 
     @app.post("/api/arm/lend")

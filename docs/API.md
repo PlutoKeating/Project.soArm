@@ -15,6 +15,7 @@
 | `POST /api/go` | `{"pose": "home\|rest", "release": false}` | 前往初始位或休息位；`release` 为真时到位后释放力矩 |
 | `POST /api/torque` | `{"active": true\|false}` | 开关所有臂的力矩。关闭后手臂会下落 |
 | `POST /api/arm/enable` | `{"arm": "left", "enabled": false}` | 停用或启用一只臂。停用后它在任何模式下都只保持当前位置 |
+| `POST /api/follow/controller` | `{"controller": "smooth\|legacy"}` | 运行中切换跟随控制器，用于在同一套硬件上对比 |
 | `POST /api/arm/lend` | `{"arm": "right"}` | 把一只臂借给开发程序：停止指挥并松开串口，舵机力矩不变 |
 | `POST /api/restore` | – | 恢复全量展示：让登记在案的开发程序退出，接管所有借出的臂。返回 `{"evicted", "restored", "failed"}` |
 | `POST /api/reconnect` | – | 重新连接未连上的机械臂和云台 |
@@ -102,6 +103,7 @@
 - `cameras.*.fps` / `detect_fps` 是采集帧率和检测频率；`read_ms` 是取一帧的平均耗时（含等待下一帧），`detect_ms` 是单帧检测的平均耗时，用于排查卡顿。当前模式用不到某路相机的检测时，它的 `detect_fps` 为 0。
 - `lent` 为真表示这只臂已借给开发程序，此时 `connected` 为假。
 - 顶层的 `guidance_hits` 是最近若干次“引导命中”：深度引导把臂带过去后，腕部相机第一眼看到手时，手在腕部画面里的位置 `{arm, time, cx, cy}`。离画面中心越近说明引导越准。
+- 顶层的 `follow_controller` 是当前的跟随控制器；`follow_stats` 以 `"臂:控制器"` 为键给出累计度量：`tracking_s`（腕部相机看着手的累计时长）、`pixel_error_deg`（手偏离画面中心的平均角度，越小越紧）、`roughness_deg_s2`（指令角加速度的均方根，越小越顺）、`lost_events` 和 `lost_per_min`（跟丢次数）。
 - 顶层的 `floor_pitch_deg` 是最近一次由地面测得的深度相机低头角度，没测到时为 `null`。
 - `head` 在未配置云台时为 `null`。
 - `cameras.*.primary` 是当前锁定的主手：`cx`、`cy` 为掌心的归一化画面坐标，`size` 为手在画面中的相对大小，`xyz` 为相机光学系下的 3D 坐标（米，x 右 y 下 z 前），只有深度相机有。没有主手时为 `null`。
