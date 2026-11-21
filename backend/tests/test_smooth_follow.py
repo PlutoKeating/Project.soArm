@@ -70,7 +70,8 @@ def test_follow_controller_can_be_switched_at_runtime_and_metrics_are_kept_per_c
     from test_controller import Rig, _show
 
     rig = Rig(tmp_path)
-    assert rig.ctl.snapshot()["follow_controller"] == "legacy"  # 默认仍是旧控制
+    assert rig.ctl.snapshot()["follow_controller"] == "smooth"  # 默认是新控制
+    rig.ctl.set_follow_controller("legacy")
     rig.ctl.set_follow_controller("smooth")
     rig.ctl.set_mode("follow")
     rig.run(6.0)
@@ -93,7 +94,7 @@ def test_each_arm_can_run_its_own_controller_side_by_side(tmp_path):
     from test_controller import Rig, _show
 
     rig = Rig(tmp_path)
-    rig.ctl.set_follow_controller("smooth", arm="right")
+    rig.ctl.set_follow_controller("legacy", arm="left")
     rig.ctl.set_mode("follow")
     rig.run(6.0)
     snap = rig.ctl.snapshot()

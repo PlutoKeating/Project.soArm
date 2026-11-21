@@ -57,8 +57,8 @@ cameras:
 #   single_tracker: false       # true 则两只臂同一时刻至多一只在跟
 #   controller: smooth          # 或 legacy（旧的比例限速做法）
 #   smooth_time: 0.08           # 越小追得越紧，过小会显得生硬
-#   filter_min_cutoff: 0.8      # 越小手不动时越稳，慢动作的滞后越大
+#   filter_min_cutoff: 1.5      # 越小手不动时越稳，慢动作的滞后越大
 #   filter_beta: 0.05           # 越大快动作越跟手，过大会把噪声放进来
-#   max_lead_deg: 4.5           # 位置预判上限；调大滞后更小，但手掉头时会冲过头
+#   max_lead_deg: 6.0           # 位置预判上限；调大滞后更小，但手掉头时会冲过头
 #   max_speed_deg_s: 150        # 跟随最大转速（度/秒）
 #   coast_s: 0.45               # 手出画面后继续追的时间

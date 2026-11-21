@@ -106,9 +106,9 @@ class FollowConfig:
     """第 2 步：腕部相机只对准、不调距离。"""
 
     # 跟随控制器。smooth：自适应滤波 + 加速度连续的二阶跟踪；legacy：固定权重混合 + 比例限速。
-    # smooth 在模拟里更紧也更稳，但尚未在真机上得到可靠的对比数据，所以默认仍是 legacy；
+    # 默认 smooth：真机上两只臂各跑一套并排对比，smooth 的偏离、抖动和丢失都更低，主观也更跟手。
     # 可以按臂单独指定（arms.<名字>.follow_controller）或在运行中切换
-    controller: str = "legacy"
+    controller: str = "smooth"
     # ---- smooth 控制器的参数 ----
     filter_min_cutoff: float = 1.5  # 手几乎不动时的滤波截止频率（Hz）。越小越稳，但慢动作的滞后越大
     filter_beta: float = 0.05  # 截止频率随手的角速度升高的速率（Hz 每 度/秒）。越大快动作越跟手
