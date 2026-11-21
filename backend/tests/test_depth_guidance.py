@@ -465,3 +465,24 @@ def test_guidance_hit_is_recorded_when_wrist_camera_takes_over(world):
     assert len(hits) == 1 and hits[0]["arm"] == "left"
     assert abs(hits[0]["cx"] - 0.5) < 0.1 and abs(hits[0]["cy"] - 0.5) < 0.12  # 引导得准，手在腕部画面中部
     assert rig.ctl.snapshot()["guidance_hits"][0]["arm"] == "left"
+
+
+def test_fit_floor_normal_ignores_a_bigger_wall_when_given_the_expected_up():
+    fx = fy = 600.0
+    cx, cy, w, h = 320.0, 240.0, 640, 480
+    pitch, height = np.deg2rad(25.0), 1.2
+    floor_n = np.array([0.0, -np.cos(pitch), -np.sin(pitch)])
+    wall_n = np.array([0.0, np.sin(pitch), -np.cos(pitch)])  # 正前方 1.5 米处的竖直墙面
+    v, u = np.mgrid[0:h, 0:w]
+    rays = np.stack([(u - cx) / fx, (v - cy) / fy, np.ones_like(u, float)], axis=-1)
+    with np.errstate(divide="ignore"):
+        d_floor = -height / (rays @ floor_n)
+        d_wall = -1.5 / (rays @ wall_n)
+    d_floor[d_floor <= 0] = np.inf
+    d_wall[d_wall <= 0] = np.inf
+    depth = np.minimum(d_floor, d_wall).astype(np.float32)  # 墙占了画面的大部分
+    assert (d_wall < d_floor).mean() > 0.55
+    wrong, _ = fit_floor_normal(depth, (fx, fy, cx, cy))
+    assert abs(wrong @ wall_n) > 0.99  # 没有先验时认成了墙
+    right, hgt = fit_floor_normal(depth, (fx, fy, cx, cy), expected_up=floor_n)
+    assert np.allclose(right, floor_n, atol=0.02) and hgt == pytest.approx(height, abs=0.03)

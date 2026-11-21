@@ -164,10 +164,17 @@ def _segment_distance(points: np.ndarray, skeleton: np.ndarray) -> np.ndarray:
     return best
 
 
-def fit_floor_normal(depth: np.ndarray, intrinsics: tuple[float, float, float, float]) -> tuple[np.ndarray, float]:
+def fit_floor_normal(
+    depth: np.ndarray,
+    intrinsics: tuple[float, float, float, float],
+    expected_up: np.ndarray | None = None,
+    max_deviation_deg: float = 12.0,
+) -> tuple[np.ndarray, float]:
     """从一帧深度图里找出地面，返回 (相机系下朝上的单位法线, 相机离地高度/米)。
 
-    地面是画面里最大的平面。它的法线就是世界的“上”，由此可以直接定出相机的俯仰和横滚。
+    地面的法线就是世界的“上”，由此可以直接定出相机的俯仰和横滚。相机低头较多时地面是
+    画面里最大的平面；相机抬得较平时，正前方的墙面可能更大，这时要给出 expected_up
+    （大致的“上”方向，比如由云台转角推算），只接受法线与它相差不大的平面。
     """
     fx, fy, cx, cy = intrinsics
     h, w = depth.shape
@@ -179,15 +186,20 @@ def fit_floor_normal(depth: np.ndarray, intrinsics: tuple[float, float, float, f
     pts = np.stack([(u[ok] - cx) / fx * z[ok], (v[ok] - cy) / fy * z[ok], z[ok]], axis=1)
     rng = np.random.default_rng(0)
     best_count, best_mask = 0, None
-    for _ in range(300):
+    for _ in range(600):
         a, b, c = pts[rng.choice(len(pts), 3, replace=False)]
         n = np.cross(b - a, c - a)
         norm = np.linalg.norm(n)
         if norm < 1e-6:
             continue
-        mask = np.abs((pts - a) @ (n / norm)) < 0.02
+        n = n / norm
+        if expected_up is not None and abs(float(n @ expected_up)) < np.cos(np.deg2rad(max_deviation_deg)):
+            continue
+        mask = np.abs((pts - a) @ n) < 0.02
         if mask.sum() > best_count:
             best_count, best_mask = int(mask.sum()), mask
+    if best_mask is None or best_count < 150:
+        raise ValueError("没有找到方向相符的地面")
     plane = pts[best_mask]
     centre = plane.mean(axis=0)
     normal = np.linalg.svd(plane - centre)[2][-1]

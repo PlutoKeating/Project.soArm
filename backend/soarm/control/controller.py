@@ -766,13 +766,14 @@ class Controller:
         if latest is None or latest[1] is None or cam.intrinsics is None:
             return
         intr = cam.intrinsics
+        # 用标定时记录的“上”方向作先验：相机抬得较平时墙面比地面大，没有先验会认错。
+        # 找不到相符的地面（被人挡住等）就沿用上一次的；从没找到过则直接用标定值
+        reference = next((e.up_cam for e in self.calibration.arms.values() if e.up_cam is not None), None)
         try:
-            up, _ = fit_floor_normal(latest[1], (intr.fx, intr.fy, intr.cx, intr.cy))
+            up, _ = fit_floor_normal(latest[1], (intr.fx, intr.fy, intr.cx, intr.cy), expected_up=reference)
         except ValueError:
-            return  # 这一帧看不到足够的地面（比如被人挡住），沿用上一次的
-        # 与上次相差很大时多半是误检（把墙当成了地面），不采用
-        if self._floor_up is None or float(up @ self._floor_up) > np.cos(np.deg2rad(8.0)):
-            self._floor_up = up
+            return
+        self._floor_up = up
 
     def _pick_cue_arm(self) -> str | None:
         """深度引导交给哪只臂：只在自己腕部相机看不到手的臂里选，转角最省的优先。

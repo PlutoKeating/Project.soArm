@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from functools import partial
 
@@ -14,9 +15,10 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from . import lab
 from .config import REPO_ROOT, Config, load_config
 from .control.controller import HEAD_KEYMAP, KEYMAP, MODES, Controller
-from .perception.cameras import CameraWorker
+from .perception.cameras import CameraWorker, RemoteHandCamera
 from .perception.hand import make_detector
 from .robot.factory import make_robot
 
@@ -63,7 +65,8 @@ def build_controller(cfg: Config) -> Controller:
         cfg.detector.min_confidence,
     )
     cameras = {
-        name: CameraWorker(name, cam_cfg, cfg.detector, detector_factory)
+        name: RemoteHandCamera(name, cam_cfg) if cam_cfg.type == "remote"
+        else CameraWorker(name, cam_cfg, cfg.detector, detector_factory)
         for name, cam_cfg in cfg.cameras.items()
     }
     arms, head = make_robot(cfg)
@@ -75,6 +78,8 @@ def create_app(cfg: Config) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        if cfg.lab:
+            lab.pidfile().write_text(str(os.getpid()))  # 登记为开发试验进程，生产恢复时会让它退出
         for cam in controller.cameras.values():
             cam.start()
         await asyncio.to_thread(controller.start)
@@ -85,7 +90,12 @@ def create_app(cfg: Config) -> FastAPI:
             except (RuntimeError, ValueError) as e:
                 logger.error("无法自动进入模式 %s: %s", cfg.start_mode, e)
         yield
-        await asyncio.to_thread(controller.shutdown)
+        if cfg.lab:
+            # 开发试验进程被要求让路：立刻松开串口，不收手、不动力矩，生产会接管
+            await asyncio.to_thread(controller.abort)
+            lab.release()
+        else:
+            await asyncio.to_thread(controller.shutdown)
         for cam in controller.cameras.values():
             cam.stop()
 
@@ -233,6 +243,7 @@ def main() -> None:
     parser.add_argument("--config", help="配置文件路径，默认 config/config.yaml")
     parser.add_argument("--mock", action="store_true", help="不连接机械臂和云台，用模拟替身")
     parser.add_argument("--mode", choices=MODES, help="启动后自动进入的模式，覆盖配置里的 start_mode")
+    parser.add_argument("--lab", action="store_true", help="作为开发试验进程运行：登记进程号，被要求让路时立刻松开机械臂")
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     args = parser.parse_args()
@@ -243,6 +254,8 @@ def main() -> None:
         cfg.mock = True
     if args.mode:
         cfg.start_mode = args.mode
+    if args.lab:
+        cfg.lab = True
     host, port = args.host or cfg.server.host, args.port or cfg.server.port
     logger.info("控制台地址 http://%s:%d  （mock=%s）", host, port, cfg.mock)
     # 视频流和 WebSocket 是长连接，浏览器开着时不会自己断开。不设超时的话 Ctrl+C 后

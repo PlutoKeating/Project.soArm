@@ -29,6 +29,12 @@ class FakeCamera:
         self.overlay_text = ""
         self.deadzone = 0.0
 
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
     def primary_hand(self, max_age_s: float = 0.4):
         return self.hand
 

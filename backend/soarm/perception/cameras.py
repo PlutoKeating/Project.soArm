@@ -159,6 +159,80 @@ class _Grabber:
             return self._latest
 
 
+class RemoteHandCamera:
+    """只读轮询另一个正在运行的控制台，把它某路相机的“主手”当作本地相机的检测结果。
+
+    用于开发试验：腕部相机被生产进程占着时，借来的机械臂仍然能知道自己的腕部相机看到了什么。
+    cfg.device 的格式是 "http://主机:端口#相机名"。只有检测结果，没有画面。
+    """
+
+    def __init__(self, name: str, cfg: CameraConfig):
+        self.name, self.cfg = name, cfg
+        self._url, _, self._remote = cfg.device.partition("#")
+        self._remote = self._remote or name
+        self._hand: Hand | None = None
+        self._hand_time = 0.0
+        self._count = 0
+        self.intrinsics = None
+        self.error: str | None = "未启动"
+        self.detect_error: str | None = None
+        self.fps = self.detect_fps = self.read_ms = self.detect_ms = 0.0
+        self.detect_enabled = True
+        self.overlay_text, self.overlay_active, self.deadzone = "", False, 0.0
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name=f"remote-{name}", daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=2)
+
+    def _run(self) -> None:
+        import json
+        import urllib.request
+
+        prev = time.monotonic()
+        while not self._stop.is_set():
+            try:
+                state = json.load(urllib.request.urlopen(f"{self._url}/api/state", timeout=1))
+                cam = state["cameras"][self._remote]
+                self.cfg.width, self.cfg.height = cam.get("size", [self.cfg.width, self.cfg.height])
+                p = cam.get("primary")
+                now = time.monotonic()
+                self.fps = self.detect_fps = 0.9 * self.fps + 0.1 / max(now - prev, 1e-3)
+                prev = now
+                self._count = cam.get("hands", 0)
+                self.error = cam.get("error")
+                if p:
+                    # 对方的状态没有时间戳；按一次检测加一次轮询的典型延迟往前推
+                    self._hand = Hand(p["cx"], p["cy"], p["size"], p["score"], np.zeros((21, 2), np.float32), None, now - 0.05)
+                    self._hand_time = now
+            except Exception as e:
+                self.error = f"读不到 {self._url}: {e}"
+            self._stop.wait(0.03)
+
+    def primary_hand(self, max_age_s: float = 0.4) -> Hand | None:
+        if self._hand is None or time.monotonic() - self._hand_time > max_age_s:
+            return None
+        return self._hand
+
+    def hand_count(self) -> int:
+        return self._count
+
+    def latest(self):
+        return None
+
+    def point_at(self, u_norm: float, v_norm: float):
+        return None
+
+    def jpeg(self, quality: int = 70) -> bytes:
+        frame = np.full((360, 640, 3), 28, np.uint8)
+        cv2.putText(frame, "REMOTE (no image)", (150, 190), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (90, 90, 110), 2)
+        return cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])[1].tobytes()
+
+
 class CameraWorker:
     def __init__(self, name: str, cfg: CameraConfig, det_cfg: DetectorConfig, detector_factory):
         self.name = name

@@ -110,3 +110,44 @@ def test_disabled_camera_is_never_opened(tmp_path):
         cam = c.get("/api/state").json()["cameras"]["head"]
         assert "停用" in cam["error"] and cam["fps"] == 0
         assert not c.app.state.controller.cameras["head"]._thread.is_alive()
+
+
+def test_remote_hand_camera_mirrors_another_console(tmp_path):
+    """开发侧借臂试验时，通过只读轮询另一个控制台拿到腕部相机的检测结果。"""
+    import threading
+
+    import uvicorn
+
+    from soarm.config import CameraConfig
+    from soarm.perception.cameras import RemoteHandCamera
+    from soarm.perception.hand import Hand
+    from test_controller import FakeCamera
+
+    cfg = Config(mock=True, cameras={}, calibration_dir=str(tmp_path))
+    app = create_app(cfg)
+    fake = FakeCamera()
+    fake.cfg.width, fake.cfg.height = 1280, 720
+    app.state.controller.cameras["wrist_right"] = fake
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=18765, log_level="error"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 10
+        while not server.started and time.monotonic() < deadline:
+            time.sleep(0.05)
+        remote = RemoteHandCamera("wrist_right", CameraConfig(type="remote", device="http://127.0.0.1:18765#wrist_right"))
+        remote.start()
+        time.sleep(0.4)
+        assert remote.primary_hand() is None and remote.error is None
+        fake.hand = Hand(0.7, 0.3, 0.4, 0.9, np.zeros((21, 2), np.float32), None, time.monotonic())
+        time.sleep(0.4)
+        hand = remote.primary_hand()
+        assert hand is not None and (hand.cx, hand.cy) == (0.7, 0.3)
+        assert (remote.cfg.width, remote.cfg.height) == (1280, 720)
+        fake.hand = None
+        time.sleep(0.7)
+        assert remote.primary_hand() is None  # 对方看不到了，这边也随之过期
+        remote.stop()
+    finally:
+        server.should_exit = True
+        thread.join(timeout=5)
