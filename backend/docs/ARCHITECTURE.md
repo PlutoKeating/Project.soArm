@@ -18,6 +18,7 @@
 _tick
  ├─ 清理超时的按键
  ├─ fused 模式：_fused_select 决定由哪只臂去跟
+ ├─ follow 模式：_follow_select 按视野评分决定哪只臂拿跟随权
  ├─ 每只已连接的臂：_tick_arm
  │    读实测位置
  │    力矩已释放 → 目标跟随实测，结束

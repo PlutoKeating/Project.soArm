@@ -64,7 +64,8 @@
       "calibrated": false,
       "calib_rms_mm": null,
       "calib_samples": 0,
-      "fused_selected": false
+      "fused_selected": false,
+      "view_quality": 0.0
     }
   },
   "head": {
@@ -88,6 +89,8 @@
 - `tip` 是夹爪参考点在该臂基座系下的位置（米，x 前 y 左 z 上），`pitch` 是夹爪俯仰角（度，抬头为正）。
 - `moving_to` 在回初始位或收到休息位的途中为 `"home"` 或 `"rest"`。
 - `calib_rms_mm` 是已保存外参的残差；`calib_samples` 是尚未求解的暂存点数。
+- `fused_selected` 表示这只臂当前负责跟随：腕部跟随模式下是拿到跟随权的那只，深度引导模式下是被选去够手的那只。
+- `view_quality` 是这只臂的腕部相机当前看手的质量评分，0–1，0 表示看不到。
 - `head` 在未配置云台时为 `null`。
 - `cameras.*.primary` 是当前锁定的主手：`cx`、`cy` 为掌心的归一化画面坐标，`size` 为手在画面中的相对大小，`xyz` 为相机光学系下的 3D 坐标（米，x 右 y 下 z 前），只有深度相机有。没有主手时为 `null`。
 

@@ -42,8 +42,10 @@ cameras:
     type: realsense
     device: ""          # soarm-tools cameras 输出的 RealSense 序列号，留空取第一台
 
-# 展会场景建议保持默认。内部调试想更灵敏时可调大：
+# 跟随手感：下面是默认值，觉得慢就调大，觉得抖或来回摆就调小。
 # safety:
-#   max_joint_speed_deg_s: 45
+#   max_joint_speed_deg_s: 70   # 关节限速上限（度/秒）
 # follow:
-#   gain: 1.6
+#   gain: 2.2                   # 跟随响应，越大越快，过大会来回摆
+#   max_speed_deg_s: 60         # 跟随最大转速（度/秒）
+#   smoothing: 0.45             # 越大越跟手，越小越稳

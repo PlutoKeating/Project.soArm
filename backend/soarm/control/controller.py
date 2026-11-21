@@ -119,6 +119,9 @@ class Controller:
         self.calib_session = CalibSession()
         self._fused_arm: str | None = None
         self._fused_point: np.ndarray | None = None
+        self._follow_arm: str | None = None  # 腕部跟随模式下当前负责跟随的臂
+        self._follow_rival: tuple[str, float] | None = None  # (候选臂, 开始领先的时刻)
+        self._follow_lost_at: float | None = None  # 当前跟随臂开始看不到手的时刻
 
         self.home = dict(cfg.home)
         # 肩部参考点：shoulder_lift 关节大致所在位置，用作“伸出距离”的原点
@@ -232,6 +235,7 @@ class Controller:
                 raise RuntimeError("急停中，请先解除急停")
             self.mode = mode
             self._fused_arm = None
+            self._follow_arm = self._follow_rival = self._follow_lost_at = None
             for rt in self.arms.values():
                 self._reset_motion(rt)
                 if not rt.enabled:
@@ -371,6 +375,8 @@ class Controller:
         keys = self._active_keys(now)
         if self.mode == "fused" and not self.estop:
             self._fused_select()
+        if self.mode == "follow" and not self.estop:
+            self._follow_select(now)
         for name, rt in self.arms.items():
             if not rt.arm.connected:
                 continue
@@ -534,9 +540,64 @@ class Controller:
             lo, hi = rt.limits[joint]
             setattr(rt, attr, float(np.clip(getattr(rt, attr), lo - base[joint], hi - base[joint])))
 
+    def _view_quality(self, rt: ArmRuntime) -> float:
+        """这只臂的腕部相机看手看得有多好，0 表示看不到。
+
+        综合三点：检测置信度、手离画面中心的远近、手在画面里的大小。手越居中、越完整、
+        检测越稳，这只臂就越适合去跟。
+        """
+        cam = self.cameras.get(rt.cfg.camera)
+        hand = cam.primary_hand() if cam else None
+        if hand is None or hand.score < self.cfg.follow.min_hand_score:
+            return 0.0
+        off = float(np.hypot(hand.cx - 0.5, hand.cy - 0.5)) / 0.707  # 0 在中心，1 在角上
+        centered = max(0.0, 1.0 - off)
+        sized = float(np.clip(hand.size / 0.35, 0.3, 1.0))  # 太小说明太远或只露出一部分
+        return hand.score * (0.4 + 0.6 * centered) * sized
+
+    def _follow_select(self, now: float) -> None:
+        """两只臂同一时刻至多一只在跟随：选视野最好的那只，带滞回。"""
+        f = self.cfg.follow
+        if not f.single_tracker:
+            self._follow_arm = None
+            return
+        quality = {
+            name: self._view_quality(rt)
+            for name, rt in self.arms.items()
+            if rt.enabled and rt.arm.connected and rt.arm.torque_enabled and rt.goto is None
+        }
+        seeing = {n: q for n, q in quality.items() if q > 0}
+        current = self._follow_arm
+        if current is None:
+            self._follow_arm = max(seeing, key=seeing.get) if seeing else None
+            self._follow_rival, self._follow_lost_at = None, None
+            return
+        if current not in seeing:
+            # 当前跟随臂看不到手了。检测偶尔会漏一两帧，所以先等一小段宽限期，
+            # 确实丢了再移交给别的臂（或放弃跟随权）
+            if self._follow_lost_at is None:
+                self._follow_lost_at = now
+            if now - self._follow_lost_at >= f.switch_hold_s or current not in quality:
+                self._follow_arm = max(seeing, key=seeing.get) if seeing else None
+                self._follow_rival, self._follow_lost_at = None, None
+            return
+        self._follow_lost_at = None
+        best = max(seeing, key=seeing.get)
+        if best == current or seeing[best] < seeing[current] * (1 + f.switch_margin):
+            self._follow_rival = None
+            return
+        # 另一只臂明显更好：要持续领先一小段时间才换，避免抖动
+        if self._follow_rival is None or self._follow_rival[0] != best:
+            self._follow_rival = (best, now)
+        elif now - self._follow_rival[1] >= f.switch_hold_s:
+            self._follow_arm, self._follow_rival = best, None
+
     def _follow(self, rt: ArmRuntime, dt: float, now: float) -> dict[str, float]:
         f = self.cfg.follow
-        err = self._wrist_error(rt)
+        yielding = f.single_tracker and self.mode == "follow" and self._follow_arm not in (None, rt.arm.name)
+        err = None if yielding else self._wrist_error(rt)
+        if yielding:
+            rt.filt = None
         if err is not None:
             rt.lost_since = None
             self._apply_wrist_error(rt, err, dt, f.pan_range_deg, f.tilt_range_deg)
@@ -550,6 +611,8 @@ class Controller:
                 rt.status = "未见手，回初始位" if (rt.pan_off or rt.tilt_off) else "等待手出现"
             else:
                 rt.status = "短暂丢失，保持"
+            if yielding:
+                rt.status = "让位·另一只臂在跟随"
         desired = dict(rt.home)
         desired["shoulder_pan"] += rt.pan_off
         desired["wrist_flex"] += rt.tilt_off
@@ -735,8 +798,10 @@ class Controller:
                     "calibrated": ext is not None,
                     "calib_rms_mm": None if ext is None else round(ext.rms * 1000, 1),
                     "calib_samples": self.calib_session.count(name),
-                    "fused_selected": self.mode == "fused" and self._fused_arm == name
-                    and self._fused_point is not None,
+                    "fused_selected": (self.mode == "fused" and self._fused_arm == name
+                                       and self._fused_point is not None)
+                    or (self.mode == "follow" and self._follow_arm == name),
+                    "view_quality": round(self._view_quality(rt), 2),
                 }
             cams = {
                 name: {

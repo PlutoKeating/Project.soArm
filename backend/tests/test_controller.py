@@ -283,6 +283,7 @@ def test_disabled_arm_holds_in_every_mode(rig):
 
 def test_pan_never_crosses_toward_the_mast(rig):
     """中柱避让：左臂不超过前偏右 30°（+pan），右臂不超过前偏左 30°（-pan）。"""
+    rig.cfg.follow.single_tracker = False  # 这里要两只臂同时转到各自的极限
     rig.ctl.set_mode("follow")
     rig.run(6.0)
     rig.cams["wrist_left"].show(1.0, 0.5)   # 手一直在左臂画面最右
@@ -295,3 +296,75 @@ def test_pan_never_crosses_toward_the_mast(rig):
     rig.run(15.0, keys=["KeyD", "KeyJ"])  # 左臂向右、右臂向左
     assert rig.ctl.arms["left"].target["shoulder_pan"] <= 30.0 + 1e-6
     assert rig.ctl.arms["right"].target["shoulder_pan"] >= -30.0 - 1e-6
+
+
+def _show(cam, cx, cy, size=0.4, score=0.9):
+    cam.hand = Hand(cx, cy, size, score, np.zeros((21, 2), np.float32), None)
+
+
+def test_only_one_arm_tracks_and_the_better_view_wins(rig):
+    rig.ctl.set_mode("follow")
+    rig.run(6.0)
+    # 两只臂都看到手：左臂画面里手居中偏一点，右臂画面里手在边角且很小
+    _show(rig.cams["wrist_left"], 0.62, 0.5)
+    _show(rig.cams["wrist_right"], 0.95, 0.9, size=0.15)
+    rig.run(1.0)
+    assert rig.ctl._follow_arm == "left"
+    assert abs(rig.ctl.arms["left"].pan_off) > 1
+    assert rig.at_home("right")  # 右臂看到了手也不动
+    assert "让位" in rig.ctl.arms["right"].status
+    snap = rig.ctl.snapshot()
+    assert snap["arms"]["left"]["fused_selected"] and not snap["arms"]["right"]["fused_selected"]
+
+
+def test_tracker_switches_only_when_other_view_is_clearly_better(rig):
+    rig.ctl.set_mode("follow")
+    rig.run(6.0)
+    _show(rig.cams["wrist_left"], 0.6, 0.5)
+    rig.run(0.5)
+    assert rig.ctl._follow_arm == "left"
+    # 右臂也看到了，质量略好一点点：不换
+    _show(rig.cams["wrist_left"], 0.6, 0.5, score=0.85)
+    _show(rig.cams["wrist_right"], 0.55, 0.5, score=0.9)
+    rig.run(2.0)
+    assert rig.ctl._follow_arm == "left"
+    # 左臂视野明显变差（手到了边角），右臂居中：短暂领先不换，持续领先才换
+    _show(rig.cams["wrist_left"], 0.95, 0.92, size=0.2, score=0.6)
+    _show(rig.cams["wrist_right"], 0.5, 0.5)
+    rig.run(0.3)
+    assert rig.ctl._follow_arm == "left"
+    rig.run(1.0)
+    assert rig.ctl._follow_arm == "right"
+    # 换臂后原来的臂回初始位
+    rig.run(8.0)
+    assert rig.at_home("left")
+
+
+def test_tracker_hands_over_after_grace_when_current_loses_hand(rig):
+    rig.ctl.set_mode("follow")
+    rig.run(6.0)
+    _show(rig.cams["wrist_left"], 0.6, 0.5)
+    rig.run(0.5)
+    rig.cams["wrist_left"].hand = None
+    _show(rig.cams["wrist_right"], 0.9, 0.9, size=0.2, score=0.6)  # 视野一般，但只有它看得到
+    rig.run(0.2)
+    assert rig.ctl._follow_arm == "left"  # 漏检一两帧不移交
+    _show(rig.cams["wrist_left"], 0.6, 0.5)
+    rig.run(0.2)
+    assert rig.ctl._follow_arm == "left"  # 手回来了，继续由它跟
+    rig.cams["wrist_left"].hand = None
+    rig.run(1.0)
+    assert rig.ctl._follow_arm == "right"  # 确实丢了才移交
+    rig.cams["wrist_right"].hand = None
+    rig.run(1.0)
+    assert rig.ctl._follow_arm is None
+
+
+def test_disabled_arm_is_never_chosen_as_tracker(rig):
+    rig.ctl.set_arm_enabled("left", False)
+    rig.ctl.set_mode("follow")
+    rig.run(6.0)
+    _show(rig.cams["wrist_left"], 0.5, 0.5)
+    _show(rig.cams["wrist_right"], 0.9, 0.9, size=0.2, score=0.6)
+    rig.run(1.0)
+    assert rig.ctl._follow_arm == "right"

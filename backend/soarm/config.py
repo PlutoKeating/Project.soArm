@@ -72,7 +72,7 @@ class CameraConfig:
 class SafetyConfig:
     """展会场景的保守默认值。"""
 
-    max_joint_speed_deg_s: float = 45.0  # 任何模式下单关节目标的变化速率上限
+    max_joint_speed_deg_s: float = 70.0  # 任何模式下单关节目标的变化速率上限
     home_speed_deg_s: float = 25.0  # 回初始位的速度
     max_torque_limit: int = 1000  # Feetech Torque_Limit，满量程 1000。5 V 供电下调低会托不住手臂
     acceleration: int = 40  # Feetech Acceleration 寄存器，越小越柔
@@ -100,14 +100,19 @@ class KeyboardConfig:
 class FollowConfig:
     """第 2 步：腕部相机只对准、不调距离。"""
 
-    gain: float = 1.6  # 每秒修正掉的角度误差比例
+    gain: float = 2.2  # 每秒修正掉的角度误差比例
     deadzone: float = 0.06  # 归一化画面坐标（半幅为 1）内的死区
-    smoothing: float = 0.35  # 手部位置的指数平滑系数，越大越跟手
-    max_speed_deg_s: float = 40.0
+    smoothing: float = 0.45  # 手部位置的指数平滑系数，越大越跟手
+    max_speed_deg_s: float = 60.0
     pan_range_deg: tuple[float, float] = (-70.0, 70.0)  # 相对初始位的偏转范围
     tilt_range_deg: tuple[float, float] = (-35.0, 40.0)
     lost_timeout_s: float = 1.5  # 丢失手这么久后开始回初始位
     min_hand_score: float = 0.5
+    # 两只臂同一时刻至多一只在跟随。另一只臂的视野质量要比当前跟随臂高出这个比例，
+    # 并且持续 switch_hold_s 秒，才会换臂，避免两臂来回抢
+    single_tracker: bool = True
+    switch_margin: float = 0.25
+    switch_hold_s: float = 0.6
 
 
 @dataclass
