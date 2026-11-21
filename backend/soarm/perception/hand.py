@@ -27,6 +27,7 @@ class Hand:
     score: float
     landmarks: np.ndarray  # (21, 2) 归一化坐标
     xyz: np.ndarray | None = field(default=None)  # 掌心在相机光学系下的 3D 坐标（米），仅深度相机有
+    t: float = 0.0  # 这一帧的采集时刻（time.monotonic），控制层据此区分新旧观测并补偿延迟
 
 
 class HandDetector(ABC):

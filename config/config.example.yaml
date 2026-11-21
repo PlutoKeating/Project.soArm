@@ -32,20 +32,26 @@ cameras:
     type: opencv
     device: ""          # soarm-tools cameras 输出的 /dev/v4l/by-path/...-usbv2-...-index0 路径
     rotate: 0           # 画面是倒的或侧的时改成 90 / 180 / 270
-    hfov_deg: 85        # 水平视场角估计值，只影响跟随灵敏度
+    width: 1280         # 传感器原生分辨率
+    height: 720
+    hfov_deg: 90        # 水平视场角估计值，只影响跟随灵敏度
   wrist_right:
     type: opencv
     device: ""
     rotate: 0
-    hfov_deg: 85
+    width: 1280
+    height: 720
+    hfov_deg: 90
   head:
     type: realsense
     device: ""          # soarm-tools cameras 输出的 RealSense 序列号，留空取第一台
 
 # 跟随手感：下面是默认值，觉得慢就调大，觉得抖或来回摆就调小。
 # safety:
-#   max_joint_speed_deg_s: 70   # 关节限速上限（度/秒）
+#   max_joint_speed_deg_s: 180  # 关节限速上限（度/秒）
 # follow:
-#   gain: 2.2                   # 跟随响应，越大越快，过大会来回摆
-#   max_speed_deg_s: 60         # 跟随最大转速（度/秒）
-#   smoothing: 0.45             # 越大越跟手，越小越稳
+#   gain: 9                     # 越大越跟手，过大会抖
+#   max_speed_deg_s: 150        # 跟随最大转速（度/秒）
+#   smoothing: 0.7              # 越大越跟手，越小越稳
+#   lead_s: 0.08                # 向前预判的时间，过冲就调小
+#   coast_s: 0.45               # 手出画面后继续追的时间

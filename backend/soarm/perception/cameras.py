@@ -41,7 +41,9 @@ class _OpenCVSource:
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.height)
         self.cap.set(cv2.CAP_PROP_FPS, cfg.fps)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        # 缓冲不能只留 1 帧：实测两个腕部相机同时采集时，1 帧缓冲会让驱动没有空缓冲可写而丢帧，
+        # 帧率掉到 20 帧左右；4 帧缓冲下两路都是稳定的 30 帧。采集线程持续取帧，不会积压出延迟
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 4)
         self.intrinsics: Intrinsics | None = None
 
     def read(self) -> tuple[np.ndarray, np.ndarray | None]:
@@ -103,6 +105,60 @@ def depth_at(depth: np.ndarray, u: float, v: float, radius: int = 6) -> float | 
     return float(np.median(valid))
 
 
+class _Grabber:
+    """持续取帧的线程，只保留最新一帧。"""
+
+    def __init__(self, source, rotate: int):
+        self._source = source
+        self._rotate = rotate
+        self._cond = threading.Condition()
+        self._latest: tuple[int, np.ndarray, np.ndarray | None, float] | None = None
+        self._stopped = False
+        self.error: str | None = None
+        self.fps = 0.0
+        self.read_ms = 0.0
+        self._thread = threading.Thread(target=self._run, name="grab", daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stopped = True
+        self._thread.join(timeout=3)
+
+    def _run(self) -> None:
+        seq, prev = 0, time.monotonic()
+        while not self._stopped:
+            try:
+                t0 = time.monotonic()
+                frame, depth = self._source.read()
+            except Exception as e:
+                self.error = str(e)
+                with self._cond:
+                    self._cond.notify_all()
+                return
+            now = time.monotonic()
+            self.read_ms = 0.9 * self.read_ms + 0.1 * (now - t0) * 1e3
+            self.fps = 0.9 * self.fps + 0.1 / max(now - prev, 1e-3)
+            prev = now
+            if self._rotate in _ROTATE:
+                frame = cv2.rotate(frame, _ROTATE[self._rotate])
+                if depth is not None:
+                    depth = cv2.rotate(depth, _ROTATE[self._rotate])
+            seq += 1
+            with self._cond:
+                self._latest = (seq, frame, depth, now)
+                self._cond.notify_all()
+
+    def wait_newer(self, seq: int, timeout: float):
+        """等到比 seq 更新的一帧，返回 (序号, 画面, 深度, 采集时刻)；超时或出错返回 None。"""
+        with self._cond:
+            self._cond.wait_for(lambda: self.error or (self._latest and self._latest[0] > seq), timeout)
+            if self._latest is None or self._latest[0] <= seq:
+                return None
+            return self._latest
+
+
 class CameraWorker:
     def __init__(self, name: str, cfg: CameraConfig, det_cfg: DetectorConfig, detector_factory):
         self.name = name
@@ -120,6 +176,10 @@ class CameraWorker:
         self.error: str | None = "未启动"
         self.fps = 0.0
         self.detect_fps = 0.0
+        self.read_ms = 0.0  # 取一帧的平均耗时（含等待下一帧）
+        self.detect_ms = 0.0  # 单帧检测的平均耗时
+        # 由控制层设置：当前模式用不到这路相机的检测时关掉，省出 CPU
+        self.detect_enabled = True
         # 由控制层设置，仅用于画面标注
         self.overlay_text = ""
         self.overlay_active = False
@@ -163,23 +223,32 @@ class CameraWorker:
             self.intrinsics = source.intrinsics
             self.error = None
             logger.info("相机 %s 已打开", self.name)
+            grabber = _Grabber(source, self.cfg.rotate)
+            grabber.start()
             last_detect = 0.0
-            t_prev = time.monotonic()
+            seq = 0
             try:
                 while not self._stop.is_set():
-                    frame, depth = source.read()
-                    if self.cfg.rotate in _ROTATE:
-                        frame = cv2.rotate(frame, _ROTATE[self.cfg.rotate])
-                        if depth is not None:
-                            depth = cv2.rotate(depth, _ROTATE[self.cfg.rotate])
-                    now = time.monotonic()
-                    self.fps = 0.9 * self.fps + 0.1 / max(now - t_prev, 1e-3)
-                    t_prev = now
+                    # 采集在独立线程里持续进行，这里总是拿最新的一帧来检测，
+                    # 检测慢的时候跳过旧帧而不是排队，延迟不会累积
+                    got = grabber.wait_newer(seq, timeout=1.0)
+                    if got is None:
+                        if grabber.error:
+                            raise RuntimeError(grabber.error)
+                        continue
+                    seq, frame, depth, now = got
+                    self.fps, self.read_ms = grabber.fps, grabber.read_ms
                     hands = None
-                    if detector is not None and now - last_detect >= min_interval:
+                    if detector is not None and not self.detect_enabled:
+                        hands, self.detect_fps = [], 0.0
+                    elif detector is not None and now - last_detect >= min_interval:
                         self.detect_fps = 0.8 * self.detect_fps + 0.2 / max(now - last_detect, 1e-3)
                         last_detect = now
+                        t_detect = time.monotonic()
                         hands = detector.detect(frame, int(now * 1000))
+                        self.detect_ms = 0.9 * self.detect_ms + 0.1 * (time.monotonic() - t_detect) * 1e3
+                        for hand in hands:
+                            hand.t = now  # 记这一帧的采集时刻，而不是检测完成的时刻
                         if depth is not None and self.intrinsics is not None:
                             self._attach_depth(hands, depth, frame.shape)
                     with self._lock:
@@ -191,6 +260,7 @@ class CameraWorker:
                 self.error = str(e)
                 logger.warning("相机 %s 出错: %s", self.name, e)
             finally:
+                grabber.stop()
                 source.close()
                 with self._lock:
                     self._hands, self._primary = [], None
@@ -265,26 +335,30 @@ class CameraWorker:
             cv2.putText(frame, "NO SIGNAL", origin, cv2.FONT_HERSHEY_SIMPLEX, 1.0, (90, 90, 110), 2)
         else:
             self._annotate(frame, hands, primary)
+        if frame.shape[1] > 800:  # 网页预览不需要全分辨率，缩小后编码更省 CPU 和带宽
+            scale = 640 / frame.shape[1]
+            frame = cv2.resize(frame, (640, int(round(frame.shape[0] * scale))), interpolation=cv2.INTER_AREA)
         ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
         return buf.tobytes() if ok else b""
 
     def _annotate(self, frame: np.ndarray, hands: list[Hand], primary: Hand | None) -> None:
         h, w = frame.shape[:2]
+        k = max(1, round(w / 640))  # 线宽随画面大小缩放
         cx, cy = w // 2, h // 2
         if self.deadzone > 0:
             dx, dy = int(self.deadzone * w / 2), int(self.deadzone * h / 2)
-            cv2.rectangle(frame, (cx - dx, cy - dy), (cx + dx, cy + dy), (200, 200, 200), 1)
-        cv2.drawMarker(frame, (cx, cy), (200, 200, 200), cv2.MARKER_CROSS, 14, 1)
+            cv2.rectangle(frame, (cx - dx, cy - dy), (cx + dx, cy + dy), (200, 200, 200), k)
+        cv2.drawMarker(frame, (cx, cy), (200, 200, 200), cv2.MARKER_CROSS, 14 * k, k)
         for hand in hands:
             is_primary = hand is primary
             color = (80, 220, 120) if is_primary else (150, 150, 150)
             pts = (hand.landmarks * [w, h]).astype(int)
             for a, b in HAND_CONNECTIONS:
-                cv2.line(frame, tuple(pts[a]), tuple(pts[b]), color, 2 if is_primary else 1)
+                cv2.line(frame, tuple(pts[a]), tuple(pts[b]), color, (2 if is_primary else 1) * k)
             center = (int(hand.cx * w), int(hand.cy * h))
-            cv2.circle(frame, center, 6, color, -1)
+            cv2.circle(frame, center, 6 * k, color, -1)
             if is_primary and self.overlay_active:
-                cv2.line(frame, (cx, cy), center, (60, 180, 255), 2)
+                cv2.line(frame, (cx, cy), center, (60, 180, 255), 2 * k)
             if hand.xyz is not None:
                 cv2.putText(frame, f"{hand.xyz[2]:.2f} m", (center[0] + 10, center[1] - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)

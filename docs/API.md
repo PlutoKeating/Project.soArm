@@ -76,8 +76,9 @@
     "matches_preset": true
   },
   "cameras": {
-    "wrist_left": {"error": null, "detect_error": null, "fps": 20.0,
-                   "detect_fps": 13.0, "hands": 1, "locked": true, "depth": false,
+    "wrist_left": {"error": null, "detect_error": null, "fps": 30.0,
+                   "detect_fps": 30.0, "read_ms": 33.5, "detect_ms": 12.5, "size": [1280, 720],
+                   "hands": 1, "locked": true, "depth": false,
                    "primary": {"cx": 0.52, "cy": 0.4, "size": 0.6, "score": 0.95, "xyz": null}}
   }
 }
@@ -91,6 +92,7 @@
 - `calib_rms_mm` 是已保存外参的残差；`calib_samples` 是尚未求解的暂存点数。
 - `fused_selected` 表示这只臂当前负责跟随：腕部跟随模式下是拿到跟随权的那只，深度引导模式下是被选去够手的那只。
 - `view_quality` 是这只臂的腕部相机当前看手的质量评分，0–1，0 表示看不到。
+- `cameras.*.fps` / `detect_fps` 是采集帧率和检测频率；`read_ms` 是取一帧的平均耗时（含等待下一帧），`detect_ms` 是单帧检测的平均耗时，用于排查卡顿。当前模式用不到某路相机的检测时，它的 `detect_fps` 为 0。
 - `head` 在未配置云台时为 `null`。
 - `cameras.*.primary` 是当前锁定的主手：`cx`、`cy` 为掌心的归一化画面坐标，`size` 为手在画面中的相对大小，`xyz` 为相机光学系下的 3D 坐标（米，x 右 y 下 z 前），只有深度相机有。没有主手时为 `null`。
 

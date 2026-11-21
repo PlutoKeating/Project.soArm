@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -75,7 +76,13 @@ class ArmRuntime:
     lost_since: float | None = None
     guided: dict[str, float] | None = None  # 第 3 步引导得到的关节角（不含腕部精调）
     paused_until: float = 0.0
+    stall_since: float | None = None
     status: str = ""
+    # 腕部跟随（瞄准式）用到的状态
+    hist: deque = field(default_factory=lambda: deque(maxlen=45))  # (时刻, 实测 pan 偏转, 实测 tilt 偏转)
+    aim: np.ndarray | None = None  # 手所在方向对应的偏转量 (pan, tilt)，度
+    aim_vel: np.ndarray = field(default_factory=lambda: np.zeros(2))  # 上述方向的角速度，度/秒
+    aim_t: float = 0.0  # 最近一次用于更新 aim 的观测时刻
     enabled: bool = True  # 停用的臂在任何模式下都只保持当前位置
     home: dict[str, float] = field(default_factory=dict)  # 本臂的初始位
     limits: dict[str, tuple[float, float]] = field(default_factory=dict)  # 本臂生效的关节限位
@@ -303,6 +310,10 @@ class Controller:
         rt.lost_since = None
         rt.guided = None
         rt.status = ""
+        rt.aim = None
+        rt.aim_vel = np.zeros(2)
+        rt.aim_t = 0.0
+        rt.hist.clear()
 
     def _start_goto(self, rt: ArmRuntime, pose: dict[str, float], name: str, release: bool = False) -> None:
         if not rt.arm.connected or not rt.arm.torque_enabled:
@@ -405,7 +416,12 @@ class Controller:
         safety = self.cfg.safety
         # 阻挡让位：实测与目标偏差过大，说明有人或物体挡住了，放弃当前目标
         worst = max(abs(rt.pos[j] - rt.target[j]) for j in ARM_JOINTS)
-        if worst > safety.stall_error_deg:
+        if worst <= safety.stall_error_deg:
+            rt.stall_since = None
+        elif rt.stall_since is None:
+            rt.stall_since = now  # 快速运动时会有瞬时滞后，偏差要持续一段时间才算受阻
+        if rt.stall_since is not None and now - rt.stall_since >= safety.stall_hold_s:
+            rt.stall_since = None
             rt.target.update({j: rt.pos[j] for j in ARM_JOINTS})
             self._reset_motion(rt)
             rt.goto = None
@@ -592,27 +608,84 @@ class Controller:
         elif now - self._follow_rival[1] >= f.switch_hold_s:
             self._follow_arm, self._follow_rival = best, None
 
-    def _follow(self, rt: ArmRuntime, dt: float, now: float) -> dict[str, float]:
+    def _offset_limits(self, rt: ArmRuntime) -> tuple[np.ndarray, np.ndarray]:
+        """腕部跟随的偏转量允许范围：配置范围与本臂关节限位的交集。"""
         f = self.cfg.follow
+        lo, hi = [], []
+        for joint, (rlo, rhi) in (("shoulder_pan", f.pan_range_deg), ("wrist_flex", f.tilt_range_deg)):
+            jlo, jhi = rt.limits[joint]
+            lo.append(max(rlo, jlo - rt.home[joint]))
+            hi.append(min(rhi, jhi - rt.home[joint]))
+        return np.array(lo), np.array(hi)
+
+    def _measured_offset_at(self, rt: ArmRuntime, t: float) -> np.ndarray:
+        """t 时刻手臂实际的偏转量。观测有延迟，要用拍下那一帧时手臂所在的位置来换算。"""
+        best = min(rt.hist, key=lambda h: abs(h[0] - t))
+        return np.array([best[1], best[2]])
+
+    def _follow(self, rt: ArmRuntime, dt: float, now: float) -> dict[str, float]:
+        """瞄准式跟随：每来一帧观测，就算出“手在哪个方向”，直接把目标对准那里。
+
+        与逐拍累加误差相比，这样同一帧观测不会被重复计入，延迟只剩检测和舵机本身；
+        再用手的角速度向前预判一点，并在手出画面后沿原方向继续追一小段。
+        """
+        f = self.cfg.follow
+        rt.hist.append((now, rt.pos["shoulder_pan"] - rt.home["shoulder_pan"],
+                        rt.pos["wrist_flex"] - rt.home["wrist_flex"]))
         yielding = f.single_tracker and self.mode == "follow" and self._follow_arm not in (None, rt.arm.name)
-        err = None if yielding else self._wrist_error(rt)
-        if yielding:
-            rt.filt = None
-        if err is not None:
+        cam = self.cameras.get(rt.cfg.camera)
+        hand = None if yielding or cam is None else cam.primary_hand(max_age_s=0.25)
+        if hand is not None and hand.score < f.min_hand_score:
+            hand = None
+        lo, hi = self._offset_limits(rt)
+        current = np.array([rt.pan_off, rt.tilt_off])
+
+        if hand is not None and hand.t > rt.aim_t:
+            # 新的一帧：像素误差 -> 角度误差 -> 手所在方向对应的偏转量
+            e = np.array([(hand.cx - 0.5) * 2.0, (hand.cy - 0.5) * 2.0])
+            e = np.sign(e) * np.maximum(0.0, np.abs(e) - f.deadzone)
+            hfov = cam.cfg.hfov_deg
+            aspect = cam.cfg.height / cam.cfg.width if cam.cfg.rotate in (0, 180) else cam.cfg.width / cam.cfg.height
+            err_deg = e * np.array([hfov / 2.0, hfov * aspect / 2.0]) * f.aim_scale
+            # 手在画面右侧 -> 向右转（方位角减小）；手在画面下方 -> 低头（俯仰角减小）
+            signs = np.array([self._pan_dir * rt.cfg.follow_pan_sign, self._tilt_dir * rt.cfg.follow_tilt_sign])
+            observed = np.clip(self._measured_offset_at(rt, hand.t) - err_deg * signs, lo, hi)
+            if rt.aim is None:
+                rt.aim, rt.aim_vel = observed, np.zeros(2)
+            else:
+                span = max(hand.t - rt.aim_t, 1e-3)
+                blended = rt.aim + f.smoothing * (observed - rt.aim)
+                vel = np.clip((blended - rt.aim) / span, -f.max_speed_deg_s, f.max_speed_deg_s)
+                rt.aim_vel = 0.5 * rt.aim_vel + 0.5 * vel
+                rt.aim = blended
+            rt.aim_t = hand.t
             rt.lost_since = None
-            self._apply_wrist_error(rt, err, dt, f.pan_range_deg, f.tilt_range_deg)
-            rt.status = "跟随中" if (err[0] or err[1]) else "已对准"
+
+        if hand is not None and rt.aim is not None:
+            goal = rt.aim + rt.aim_vel * (now - rt.aim_t + f.lead_s)
+            on_target = float(np.max(np.abs(goal - current))) < 1.0
+            rt.status = "已对准" if on_target else "跟随中"
+        elif yielding:
+            goal, rt.aim = np.zeros(2), None
+            rt.status = "让位·另一只臂在跟随"
         else:
             rt.lost_since = rt.lost_since or now
-            if now - rt.lost_since > f.lost_timeout_s:
-                step = self.cfg.safety.home_speed_deg_s * dt
-                rt.pan_off = _approach(rt.pan_off, 0.0, step)
-                rt.tilt_off = _approach(rt.tilt_off, 0.0, step)
-                rt.status = "未见手，回初始位" if (rt.pan_off or rt.tilt_off) else "等待手出现"
+            lost_for = now - rt.lost_since
+            if rt.aim is not None and lost_for <= f.coast_s:
+                # 刚丢失：沿手原来的移动方向继续追，速度逐渐衰减
+                rt.aim = np.clip(rt.aim + rt.aim_vel * dt, lo, hi)
+                rt.aim_vel = rt.aim_vel * max(0.0, 1.0 - dt / f.coast_s)
+                goal, rt.status = rt.aim, "短暂丢失，继续追"
+            elif lost_for <= f.lost_timeout_s:
+                goal, rt.status = (rt.aim if rt.aim is not None else current), "短暂丢失，保持"
             else:
-                rt.status = "短暂丢失，保持"
-            if yielding:
-                rt.status = "让位·另一只臂在跟随"
+                goal, rt.aim = np.zeros(2), None
+                rt.status = "未见手，回初始位" if float(np.max(np.abs(current))) > 0.5 else "等待手出现"
+
+        returning = hand is None and (yielding or rt.aim is None)
+        top = self.cfg.safety.home_speed_deg_s if returning else f.max_speed_deg_s
+        rate = np.clip(f.gain * (np.clip(goal, lo, hi) - current), -top, top)
+        rt.pan_off, rt.tilt_off = (float(v) for v in np.clip(current + rate * dt, lo, hi))
         desired = dict(rt.home)
         desired["shoulder_pan"] += rt.pan_off
         desired["wrist_flex"] += rt.tilt_off
@@ -758,6 +831,8 @@ class Controller:
             cam.deadzone = self.cfg.follow.deadzone if active else 0.0
         cam = self.cameras.get(self.cfg.head_camera)
         if cam is not None:
+            # 腕部跟随用不到头部相机的检测，关掉省 CPU；待机和键盘模式保留，便于看检测效果
+            cam.detect_enabled = self.mode != "follow"
             cam.overlay_active = self.mode == "fused" and self._fused_point is not None
             cam.overlay_text = f"-> {self._fused_arm}" if cam.overlay_active else ""
 
@@ -810,6 +885,9 @@ class Controller:
                     "detect_error": cam.detect_error,
                     "fps": round(cam.fps, 1),
                     "detect_fps": round(cam.detect_fps, 1),
+                    "read_ms": round(cam.read_ms, 1),
+                    "detect_ms": round(cam.detect_ms, 1),
+                    "size": [cam.cfg.width, cam.cfg.height],
                     "hands": cam.hand_count(),
                     "locked": cam.primary_hand() is not None,
                     "depth": cam.cfg.type == "realsense",

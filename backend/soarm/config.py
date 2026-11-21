@@ -72,10 +72,10 @@ class CameraConfig:
 class SafetyConfig:
     """展会场景的保守默认值。"""
 
-    max_joint_speed_deg_s: float = 70.0  # 任何模式下单关节目标的变化速率上限
+    max_joint_speed_deg_s: float = 180.0  # 任何模式下单关节目标的变化速率上限
     home_speed_deg_s: float = 25.0  # 回初始位的速度
     max_torque_limit: int = 1000  # Feetech Torque_Limit，满量程 1000。5 V 供电下调低会托不住手臂
-    acceleration: int = 40  # Feetech Acceleration 寄存器，越小越柔
+    acceleration: int = 150  # Feetech Acceleration 寄存器（单位约 8.8°/s²），越小越柔但越跟不上
     # 夹爪参考点在本臂基座系下允许的范围（米）
     x_range: tuple[float, float] = (0.10, 0.38)
     y_range: tuple[float, float] = (-0.24, 0.24)
@@ -85,7 +85,8 @@ class SafetyConfig:
     key_timeout_s: float = 0.35  # 这么久没收到按键心跳就视为全部松开
     joint_limit_margin_deg: float = 5.0
     # 关节实际位置与目标偏差过大（被人挡住/顶住）时暂停该臂
-    stall_error_deg: float = 25.0
+    stall_error_deg: float = 30.0
+    stall_hold_s: float = 0.3  # 偏差持续这么久才算受阻，避免快速运动时的瞬时滞后误触发
 
 
 @dataclass
@@ -100,10 +101,14 @@ class KeyboardConfig:
 class FollowConfig:
     """第 2 步：腕部相机只对准、不调距离。"""
 
-    gain: float = 2.2  # 每秒修正掉的角度误差比例
-    deadzone: float = 0.06  # 归一化画面坐标（半幅为 1）内的死区
-    smoothing: float = 0.45  # 手部位置的指数平滑系数，越大越跟手
-    max_speed_deg_s: float = 60.0
+    gain: float = 9.0  # 目标角到指令角的刚度（1/秒），越大越跟手，过大会抖
+    deadzone: float = 0.05  # 归一化画面坐标（半幅为 1）内的死区
+    smoothing: float = 0.7  # 新一帧观测占的权重，越大越跟手，越小越稳
+    max_speed_deg_s: float = 150.0
+    # 像素误差换算成角度后打的折扣。视场角是估计值，略小于 1 可避免估大了导致过冲
+    aim_scale: float = 0.85
+    lead_s: float = 0.08  # 按手的角速度向前预判的时间，用来抵消检测和舵机的延迟
+    coast_s: float = 0.45  # 手出画面后沿原方向继续追的时间，便于重新找到
     pan_range_deg: tuple[float, float] = (-70.0, 70.0)  # 相对初始位的偏转范围
     tilt_range_deg: tuple[float, float] = (-35.0, 40.0)
     lost_timeout_s: float = 1.5  # 丢失手这么久后开始回初始位
@@ -135,7 +140,7 @@ class DetectorConfig:
     model_path: str = "models/hand_landmarker.task"
     max_hands: int = 2
     min_confidence: float = 0.5
-    max_fps: float = 20.0  # 每路相机的检测频率上限
+    max_fps: float = 60.0  # 每路相机的检测频率上限；高于相机帧率即逐帧检测
 
 
 @dataclass
@@ -159,8 +164,9 @@ class Config:
     head: HeadConfig = field(default_factory=HeadConfig)
     cameras: dict[str, CameraConfig] = field(
         default_factory=lambda: {
-            "wrist_left": CameraConfig(),
-            "wrist_right": CameraConfig(),
+            # 腕部相机（OV9732）用传感器原生的 1280x720
+            "wrist_left": CameraConfig(width=1280, height=720, hfov_deg=90.0),
+            "wrist_right": CameraConfig(width=1280, height=720, hfov_deg=90.0),
             "head": CameraConfig(type="realsense", hfov_deg=69.0),
         }
     )

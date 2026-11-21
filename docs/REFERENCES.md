@@ -35,7 +35,7 @@
 
 ## 手部检测算法的选择
 
-选 MediaPipe Hands：直接输出 21 个关键点，CPU 上即可实时，社区的 SO-101 手部项目几乎都用它。已知弱点是暗光和远距离小目标的检出率。检测器做成了可替换接口（`perception/hand.py` 的 `HandDetector`），效果不够时可以换 YOLO 手部权重或 RTMPose，不需要改控制代码。
+选 MediaPipe Hands：直接输出 21 个关键点，CPU 上单帧约 8–12 ms，三路相机逐帧检测也够用，社区的 SO-101 手部项目几乎都用它。已知弱点是暗光和远距离小目标的检出率。检测器做成了可替换接口（`perception/hand.py` 的 `HandDetector`），效果不够时可以换 YOLO 手部权重或 RTMPose，不需要改控制代码。
 
 ## 相机实测结论
 

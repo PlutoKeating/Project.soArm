@@ -122,4 +122,6 @@ uv run soarm-console          # 启动
 | 手臂动到一半提示“受到阻挡，已让位” | 有东西挡住了，或速度相对负载过快。排除遮挡后重试；确属误报可调大 `safety.stall_error_deg` |
 | 键盘控制提示“到达可达范围边界” | 目标超出了机构可达范围或工作空间包围盒，往回移动即可 |
 | 深度引导不动，面板提示云台偏离标定姿态 | 点“云台回到标定姿态” |
+| 跟随发抖或来回摆 | 调小 `follow.gain` 或 `follow.lead_s`；冲过头再回来就调小 `follow.aim_scale` |
+| 跟随跟不上 | 先看页面上腕部相机的帧率是否约 30；再调大 `follow.gain`、`follow.max_speed_deg_s` |
 | RealSense 打不开 | 确认接在 USB 3 口；`uv run soarm-tools cameras` 查看是否被识别；序列号填的是否是该命令输出的那个 |

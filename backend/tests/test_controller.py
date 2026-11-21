@@ -19,7 +19,9 @@ class FakeCamera:
         self.hand: Hand | None = None
         self.error = None
         self.detect_error = None
+        self.detect_enabled = True
         self.fps = self.detect_fps = 30.0
+        self.read_ms = self.detect_ms = 0.0
         self.overlay_active = False
         self.overlay_text = ""
         self.deadzone = 0.0
@@ -48,6 +50,9 @@ class Rig:
             self.now += DT
             for arm in self.arms.values():
                 arm._last -= DT  # 让模拟臂的时间与测试时钟同步
+            for cam in self.cams.values():
+                if cam.hand is not None:
+                    cam.hand.t = self.now  # 模拟每拍都有新的一帧
             if keys is not None:
                 self.ctl._keys, self.ctl._keys_time = set(keys), self.now
             self.ctl._tick(DT, self.now)
@@ -235,10 +240,13 @@ def test_stall_makes_arm_yield(rig):
     rig.ctl.set_mode("keyboard")
     rig.run(6.0)
     arm = rig.arms["left"]
-    arm._pos["shoulder_pan"] += 40.0  # 模拟被人推开
-    arm._target["shoulder_pan"] = arm._pos["shoulder_pan"]
-    rig.run(DT)
+    pushed = arm._pos["shoulder_pan"] + 40.0
     rt = rig.ctl.arms["left"]
+    for i in range(15):  # 模拟被人持续顶住约半秒
+        arm._pos["shoulder_pan"] = arm._target["shoulder_pan"] = pushed
+        rig.run(DT)
+        if i == 2:
+            assert "阻挡" not in rt.status  # 瞬时偏差不算受阻
     assert "阻挡" in rt.status
     assert rt.target["shoulder_pan"] == pytest.approx(arm._pos["shoulder_pan"], abs=1.0)
 
@@ -368,3 +376,56 @@ def test_disabled_arm_is_never_chosen_as_tracker(rig):
     _show(rig.cams["wrist_right"], 0.9, 0.9, size=0.2, score=0.6)
     rig.run(1.0)
     assert rig.ctl._follow_arm == "right"
+
+
+def _sweep(rig, speed_deg_s: float, seconds: float, latency_s: float = 0.1):
+    """闭环模拟：手以恒定角速度横向移动，相机按“手与手臂朝向之差”成像，并带固定延迟。
+
+    返回 (最大滞后角, 结束时手的方向, 结束时手臂的偏转量)。全部在偏转量空间里计算。
+    """
+    ctl, rt, cam = rig.ctl, rig.ctl.arms["left"], rig.cams["wrist_left"]
+    f = rig.cfg.follow
+    sign = ctl._pan_dir * rt.cfg.follow_pan_sign
+    half_fov = cam.cfg.hfov_deg / 2.0
+    hand_dir, worst, frames = 0.0, 0.0, []
+    for _ in range(int(seconds / DT)):
+        hand_dir -= speed_deg_s * DT  # 朝偏转量减小的方向移动，避开左臂向右的中柱限位
+        offset = rt.pos["shoulder_pan"] - rt.home["shoulder_pan"]
+        frames.append((rig.now, 0.5 - (hand_dir - offset) * sign / half_fov / 2.0))
+        seen = [fr for fr in frames if fr[0] <= rig.now - latency_s]
+        if seen and 0.0 <= seen[-1][1] <= 1.0:
+            cam.hand = Hand(seen[-1][1], 0.5, 0.4, 0.9, np.zeros((21, 2), np.float32), None, seen[-1][0])
+        else:
+            cam.hand = None
+        # 这里自己控制观测的时间戳，所以不用 rig.run（它会把时间戳改成当前时刻）
+        rig.now += DT
+        for arm in rig.arms.values():
+            arm._last -= DT
+        ctl._tick(DT, rig.now)
+        worst = max(worst, abs(hand_dir - (rt.pos["shoulder_pan"] - rt.home["shoulder_pan"])))
+    return worst, hand_dir, rt.pos["shoulder_pan"] - rt.home["shoulder_pan"]
+
+
+def test_follow_keeps_up_with_a_fast_hand_despite_latency(rig):
+    rig.cfg.follow.aim_scale = 1.0  # 模拟里视场角是准确的
+    rig.ctl.set_mode("follow")
+    rig.run(6.0)
+    half_fov = rig.cams["wrist_left"].cfg.hfov_deg / 2.0
+    worst, hand_dir, offset = _sweep(rig, speed_deg_s=60.0, seconds=0.6)
+    assert worst < half_fov * 0.5  # 手始终留在画面中部，不会被甩出视野
+    assert abs(hand_dir - offset) < 10.0
+
+
+def test_follow_coasts_in_the_same_direction_after_losing_the_hand(rig):
+    rig.cfg.follow.aim_scale = 1.0
+    rig.ctl.set_mode("follow")
+    rig.run(6.0)
+    _sweep(rig, speed_deg_s=60.0, seconds=0.5)
+    rt = rig.ctl.arms["left"]
+    at_loss = rt.pan_off
+    rig.cams["wrist_left"].hand = None
+    rig.run(0.3)
+    assert "继续追" in rt.status
+    assert rt.pan_off < at_loss - 3.0  # 丢失后沿原方向（偏转量减小）继续转
+    rig.run(8.0)
+    assert rig.at_home("left")  # 一直找不到就回初始位
