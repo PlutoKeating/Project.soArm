@@ -1,0 +1,105 @@
+---
+import "@fontsource-variable/noto-sans-sc";
+import "@fontsource-variable/overpass";
+import "@fontsource-variable/jetbrains-mono";
+import "../styles/global.css";
+import Rail from "../components/Rail.astro";
+import { find, neighbours, LINES, MAIN, BRANCH } from "../data/route";
+
+const fm = Astro.props.frontmatter ?? Astro.props;
+const { title, description, steps = true } = fm;
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const path = Astro.url.pathname.replace(base, "") || "/";
+const here = find(path);
+const { prev, next } = neighbours(path);
+const line = here?.line ?? "main";
+const position = !here ? null
+  : here.line === "branch" ? `支线第 ${BRANCH.indexOf(here) + 1} 站，共 ${BRANCH.length} 站`
+  : here.line === "ref" ? null
+  : `全程第 ${MAIN.indexOf(here) + 1} 站，共 ${MAIN.length} 站`;
+const REPO = "https://github.com/PlutoKeating/Project.soArm";
+---
+<!doctype html>
+<html lang="zh-CN" data-line={line}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{here?.path === "/" ? "SO-ARM 双臂演示 · 上手线路" : `${title} · SO-ARM 上手线路`}</title>
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#0e1a3c" />
+    <link rel="icon" href={`${base}/favicon.svg`} type="image/svg+xml" />
+  </head>
+  <body>
+    <a class="skip" href="#content">跳到正文</a>
+    <header class="side" id="side">
+      <div class="brand">
+        <a href={`${base}/`} class="brand-name">
+          <svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true"><path class="bar" d="M1 16h30" /><circle cx="16" cy="16" r="7" /></svg>
+          <span>SO-ARM 双臂演示<small>上手线路</small></span>
+        </a>
+        <button class="menu" type="button" aria-expanded="false" aria-controls="rail">
+          <span class="menu-now">{here?.name ?? "目录"}</span>
+          <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"><path d="M5 8l5 5 5-5" /></svg>
+          <span class="sr">展开线路图</span>
+        </button>
+      </div>
+      <div class="rail-wrap" id="rail">
+        <Rail current={here?.path ?? ""} />
+        <p class="side-foot"><a href={REPO}>GitHub 仓库</a></p>
+      </div>
+    </header>
+
+    <main id="content">
+      <article class:list={["doc", { stepped: steps }]}>
+        <h1>{title}</h1>
+        {description && <p class="lead">{description}</p>}
+        {here && (
+          <p class="where">
+            <i class="swatch" aria-hidden="true" />{LINES[line].name}{position && <span>{position}</span>}
+          </p>
+        )}
+        <slot />
+      </article>
+      <nav class="onward" aria-label="上一站与下一站">
+        {prev ? <a class="prev" href={base + prev.path}><small>上一站</small><span>{prev.name}</span></a> : <span />}
+        {next ? <a class="next" href={base + next.path}><small>下一站</small><span>{next.name}</span></a> : <span />}
+      </nav>
+    </main>
+
+    <script is:inline>
+      // 小屏幕上展开/收起线路图
+      const btn = document.querySelector(".menu"), side = document.getElementById("side");
+      btn?.addEventListener("click", () => {
+        const open = side.toggleAttribute("data-open");
+        btn.setAttribute("aria-expanded", String(open));
+      });
+      // 步骤页：线路从第一个步骤开始往下画
+      const doc = document.querySelector(".doc.stepped"), firstStep = doc?.querySelector("h2");
+      const placeLine = () => firstStep && doc.style.setProperty("--first", firstStep.offsetTop + 20 + "px");
+      placeLine();
+      document.fonts?.ready.then(placeLine);
+      addEventListener("resize", placeLine);
+      // 代码块的复制按钮
+      for (const pre of document.querySelectorAll("article pre")) {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "copy"; b.textContent = "复制";
+        b.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(pre.querySelector("code").innerText);
+            b.textContent = "已复制";
+          } catch { b.textContent = "复制失败，请手动选择"; }
+          setTimeout(() => (b.textContent = "复制"), 1600);
+        });
+        const wrap = document.createElement("div");
+        pre.tabIndex = 0;
+        wrap.className = "code"; pre.replaceWith(wrap); wrap.append(b, pre);
+      }
+      // 宽表格可以横向滚动，并能用键盘聚焦
+      for (const t of document.querySelectorAll("article table")) {
+        const w = document.createElement("div");
+        w.className = "table"; w.tabIndex = 0; w.setAttribute("role", "region"); w.setAttribute("aria-label", "表格");
+        t.replaceWith(w); w.append(t);
+      }
+    </script>
+  </body>
+</html>

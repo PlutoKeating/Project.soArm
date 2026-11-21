@@ -1,0 +1,19 @@
+---
+// 运营通告式的提示。kind 决定标签和记号：
+//   moves 机械臂会动   caution 注意   info 说明   unverified 尚未在真机验证
+interface Props { kind?: "moves" | "caution" | "info" | "unverified"; title?: string }
+const { kind = "info", title } = Astro.props;
+const labels = { moves: "机械臂会动", caution: "注意", info: "说明", unverified: "尚未在真机验证" };
+---
+<aside class:list={["notice", kind]}>
+  <p class="notice-label">
+    <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+      {kind === "moves" && <path d="M10 2.5 18 17H2Z M10 8v4.2 M10 14.4v.2" />}
+      {kind === "caution" && <path d="M10 2 18 10 10 18 2 10Z M10 6.6v4.4 M10 13.4v.2" />}
+      {kind === "info" && <path d="M10 2.5a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15Z M10 9v5 M10 6.2v.2" />}
+      {kind === "unverified" && <path d="M10 3.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Z" />}
+    </svg>
+    {title ?? labels[kind]}
+  </p>
+  <div class="notice-body"><slot /></div>
+</aside>

@@ -1,0 +1,528 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-21T08:45:59Z",
+  "title": "Design System: SO-ARM 上手线路",
+  "extensions": {
+    "colorMeta": {
+      "scarlet": {
+        "role": "primary",
+        "displayName": "主线猩红",
+        "canonical": "#e03a2f",
+        "tonalRamp": [
+          "oklch(15% 0.105 29)",
+          "oklch(26% 0.131 29)",
+          "oklch(38% 0.160 29)",
+          "oklch(50% 0.188 29)",
+          "oklch(62% 0.183 29)",
+          "oklch(74% 0.155 29)",
+          "oklch(85% 0.129 29)",
+          "oklch(95% 0.105 29)"
+        ]
+      },
+      "scarlet-ink": {
+        "role": "primary",
+        "displayName": "猩红墨色",
+        "canonical": "#bf271d",
+        "tonalRamp": [
+          "oklch(15% 0.100 29)",
+          "oklch(26% 0.124 29)",
+          "oklch(38% 0.151 29)",
+          "oklch(50% 0.178 29)",
+          "oklch(62% 0.173 29)",
+          "oklch(74% 0.147 29)",
+          "oklch(85% 0.122 29)",
+          "oklch(95% 0.100 29)"
+        ]
+      },
+      "amber": {
+        "role": "secondary",
+        "displayName": "支线琥珀",
+        "canonical": "#f2a900",
+        "tonalRamp": [
+          "oklch(15% 0.086 78)",
+          "oklch(26% 0.108 78)",
+          "oklch(38% 0.131 78)",
+          "oklch(50% 0.154 78)",
+          "oklch(62% 0.150 78)",
+          "oklch(74% 0.127 78)",
+          "oklch(85% 0.106 78)",
+          "oklch(95% 0.086 78)"
+        ]
+      },
+      "amber-ink": {
+        "role": "secondary",
+        "displayName": "琥珀墨色",
+        "canonical": "#7a5300",
+        "tonalRamp": [
+          "oklch(15% 0.052 77)",
+          "oklch(26% 0.065 77)",
+          "oklch(38% 0.079 77)",
+          "oklch(50% 0.093 77)",
+          "oklch(62% 0.091 77)",
+          "oklch(74% 0.077 77)",
+          "oklch(85% 0.064 77)",
+          "oklch(95% 0.052 77)"
+        ]
+      },
+      "green": {
+        "role": "tertiary",
+        "displayName": "现场线绿",
+        "canonical": "#1c9a57",
+        "tonalRamp": [
+          "oklch(15% 0.077 154)",
+          "oklch(26% 0.095 154)",
+          "oklch(38% 0.116 154)",
+          "oklch(50% 0.137 154)",
+          "oklch(62% 0.133 154)",
+          "oklch(74% 0.113 154)",
+          "oklch(85% 0.094 154)",
+          "oklch(95% 0.077 154)"
+        ]
+      },
+      "green-ink": {
+        "role": "tertiary",
+        "displayName": "绿墨色",
+        "canonical": "#0f6e3c",
+        "tonalRamp": [
+          "oklch(15% 0.061 154)",
+          "oklch(26% 0.076 154)",
+          "oklch(38% 0.092 154)",
+          "oklch(50% 0.108 154)",
+          "oklch(62% 0.105 154)",
+          "oklch(74% 0.089 154)",
+          "oklch(85% 0.074 154)",
+          "oklch(95% 0.061 154)"
+        ]
+      },
+      "cobalt": {
+        "role": "tertiary",
+        "displayName": "速查钴蓝",
+        "canonical": "#2c6be0",
+        "tonalRamp": [
+          "oklch(15% 0.100 261)",
+          "oklch(26% 0.125 261)",
+          "oklch(38% 0.152 261)",
+          "oklch(50% 0.179 261)",
+          "oklch(62% 0.174 261)",
+          "oklch(74% 0.147 261)",
+          "oklch(85% 0.123 261)",
+          "oklch(95% 0.100 261)"
+        ]
+      },
+      "cobalt-ink": {
+        "role": "tertiary",
+        "displayName": "钴蓝墨色",
+        "canonical": "#1d52bd",
+        "tonalRamp": [
+          "oklch(15% 0.094 262)",
+          "oklch(26% 0.117 262)",
+          "oklch(38% 0.142 262)",
+          "oklch(50% 0.167 262)",
+          "oklch(62% 0.163 262)",
+          "oklch(74% 0.138 262)",
+          "oklch(85% 0.115 262)",
+          "oklch(95% 0.094 262)"
+        ]
+      },
+      "enamel": {
+        "role": "neutral",
+        "displayName": "珐琅深蓝",
+        "canonical": "#0e1a3c",
+        "tonalRamp": [
+          "oklch(15% 0.036 266)",
+          "oklch(26% 0.044 266)",
+          "oklch(38% 0.054 266)",
+          "oklch(50% 0.064 266)",
+          "oklch(62% 0.062 266)",
+          "oklch(74% 0.052 266)",
+          "oklch(85% 0.044 266)",
+          "oklch(95% 0.036 266)"
+        ]
+      },
+      "enamel-up": {
+        "role": "neutral",
+        "displayName": "珐琅浅一档",
+        "canonical": "#19295a",
+        "tonalRamp": [
+          "oklch(15% 0.048 267)",
+          "oklch(26% 0.060 267)",
+          "oklch(38% 0.072 267)",
+          "oklch(50% 0.085 267)",
+          "oklch(62% 0.083 267)",
+          "oklch(74% 0.070 267)",
+          "oklch(85% 0.058 267)",
+          "oklch(95% 0.048 267)"
+        ]
+      },
+      "enamel-hover": {
+        "role": "neutral",
+        "displayName": "珐琅悬停",
+        "canonical": "#24387a",
+        "tonalRamp": [
+          "oklch(15% 0.061 268)",
+          "oklch(26% 0.076 268)",
+          "oklch(38% 0.092 268)",
+          "oklch(50% 0.108 268)",
+          "oklch(62% 0.106 268)",
+          "oklch(74% 0.089 268)",
+          "oklch(85% 0.074 268)",
+          "oklch(95% 0.061 268)"
+        ]
+      },
+      "on-enamel": {
+        "role": "neutral",
+        "displayName": "珐琅上的白",
+        "canonical": "#f4f6fa",
+        "tonalRamp": [
+          "oklch(15% 0.003 265)",
+          "oklch(26% 0.004 265)",
+          "oklch(38% 0.005 265)",
+          "oklch(50% 0.005 265)",
+          "oklch(62% 0.005 265)",
+          "oklch(74% 0.004 265)",
+          "oklch(85% 0.004 265)",
+          "oklch(95% 0.003 265)"
+        ]
+      },
+      "on-enamel-2": {
+        "role": "neutral",
+        "displayName": "珐琅上的灰蓝",
+        "canonical": "#aab8dc",
+        "tonalRamp": [
+          "oklch(15% 0.028 268)",
+          "oklch(26% 0.035 268)",
+          "oklch(38% 0.043 268)",
+          "oklch(50% 0.051 268)",
+          "oklch(62% 0.049 268)",
+          "oklch(74% 0.042 268)",
+          "oklch(85% 0.035 268)",
+          "oklch(95% 0.028 268)"
+        ]
+      },
+      "porcelain": {
+        "role": "neutral",
+        "displayName": "瓷白",
+        "canonical": "#f4f6fa",
+        "tonalRamp": [
+          "oklch(15% 0.003 265)",
+          "oklch(26% 0.004 265)",
+          "oklch(38% 0.005 265)",
+          "oklch(50% 0.005 265)",
+          "oklch(62% 0.005 265)",
+          "oklch(74% 0.004 265)",
+          "oklch(85% 0.004 265)",
+          "oklch(95% 0.003 265)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "纸白",
+        "canonical": "#ffffff",
+        "tonalRamp": [
+          "oklch(15% 0.000 90)",
+          "oklch(26% 0.000 90)",
+          "oklch(38% 0.000 90)",
+          "oklch(50% 0.000 90)",
+          "oklch(62% 0.000 90)",
+          "oklch(74% 0.000 90)",
+          "oklch(85% 0.000 90)",
+          "oklch(95% 0.000 90)"
+        ]
+      },
+      "code-tint": {
+        "role": "neutral",
+        "displayName": "代码淡底",
+        "canonical": "#e4e9f3",
+        "tonalRamp": [
+          "oklch(15% 0.008 264)",
+          "oklch(26% 0.010 264)",
+          "oklch(38% 0.012 264)",
+          "oklch(50% 0.014 264)",
+          "oklch(62% 0.013 264)",
+          "oklch(74% 0.011 264)",
+          "oklch(85% 0.009 264)",
+          "oklch(95% 0.008 264)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "深墨",
+        "canonical": "#121a30",
+        "tonalRamp": [
+          "oklch(15% 0.024 268)",
+          "oklch(26% 0.029 268)",
+          "oklch(38% 0.036 268)",
+          "oklch(50% 0.042 268)",
+          "oklch(62% 0.041 268)",
+          "oklch(74% 0.035 268)",
+          "oklch(85% 0.029 268)",
+          "oklch(95% 0.024 268)"
+        ]
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "次墨",
+        "canonical": "#465070",
+        "tonalRamp": [
+          "oklch(15% 0.029 271)",
+          "oklch(26% 0.036 271)",
+          "oklch(38% 0.044 271)",
+          "oklch(50% 0.051 271)",
+          "oklch(62% 0.050 271)",
+          "oklch(74% 0.042 271)",
+          "oklch(85% 0.035 271)",
+          "oklch(95% 0.029 271)"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "分隔线",
+        "canonical": "#d3d9e7",
+        "tonalRamp": [
+          "oklch(15% 0.011 267)",
+          "oklch(26% 0.013 267)",
+          "oklch(38% 0.016 267)",
+          "oklch(50% 0.019 267)",
+          "oklch(62% 0.019 267)",
+          "oklch(74% 0.016 267)",
+          "oklch(85% 0.013 267)",
+          "oklch(95% 0.011 267)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "每页唯一的一级标题。"
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "二级标题；步骤页上的一站。62rem 以下为 1.4375rem。"
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "三级标题。"
+      },
+      "lead": {
+        "displayName": "Lead",
+        "purpose": "标题下的一段导语，次墨色。"
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "正文，栏宽上限 44rem。"
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "位置行、通告标签、小屏菜单按钮。"
+      },
+      "label-small": {
+        "displayName": "Label Small",
+        "purpose": "表头、图例、复制按钮。"
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "代码块、行内代码、按键帽。"
+      }
+    },
+    "shadows": [
+      {
+        "name": "stop-ring",
+        "value": "0 0 0 3px var(--enamel)",
+        "purpose": "把普通站点从线路上切出来的实心环；不是投影。"
+      },
+      {
+        "name": "interchange-ring",
+        "value": "0 0 0 4px var(--on-enamel), 0 0 0 7px var(--enamel)",
+        "purpose": "换乘站与当前站的双层实心环。"
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "全站唯一的缓动曲线（--ease）。"
+      },
+      {
+        "name": "station-travel",
+        "value": "0.55s",
+        "purpose": "换页时当前站标记沿线路移动（view-transition-name: here）。"
+      },
+      {
+        "name": "page-crossfade",
+        "value": "0.18s",
+        "purpose": "换页时页面其余部分的淡入淡出。"
+      },
+      {
+        "name": "hover-feedback",
+        "value": "0.2s",
+        "purpose": "站名变亮、站点放大、复制按钮换底色。"
+      },
+      {
+        "name": "menu-chevron",
+        "value": "0.25s",
+        "purpose": "小屏菜单箭头翻转 180°。"
+      },
+      {
+        "name": "reduced-motion",
+        "value": "none",
+        "purpose": "prefers-reduced-motion 时关闭所有过渡与换页动画。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "rail-collapse",
+        "value": "62rem"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "线路牌导航",
+      "kind": "nav",
+      "refersTo": "rail",
+      "description": "全站导航：珐琅深蓝底上的线路图，支线以 45° 离开主线；当前站放大并填上线色，换乘站是白环。",
+      "html": "<nav class=\"ds-rail\" aria-label=\"上手线路\"><div class=\"ds-rail-diagram\"><svg class=\"ds-rail-lines\" width=\"240\" height=\"464\" viewBox=\"0 0 240 464\" aria-hidden=\"true\"><path class=\"ds-l-branch\" d=\"M34 130 L150 246 L150 322 L34 438\"/><path class=\"ds-l-main\" d=\"M34 26 L34 438\"/></svg><ol class=\"ds-rail-stops\"><li class=\"ds-stop\" style=\"top:26px;left:34px\"><a href=\"#\"><span class=\"ds-dot\"></span><span>总览</span></a></li><li class=\"ds-stop ds-here\" style=\"top:78px;left:34px\"><a href=\"#\" aria-current=\"page\"><span class=\"ds-dot\"></span><span>安装</span></a></li><li class=\"ds-stop ds-change\" style=\"top:130px;left:34px\"><a href=\"#\"><span class=\"ds-dot\"></span><span>接线与上电<small>新套机在此换乘</small></span></a></li><li class=\"ds-stop\" style=\"top:258px;left:150px\"><a href=\"#\"><span class=\"ds-dot\"></span><span>新套机上电</span></a></li><li class=\"ds-stop\" style=\"top:284px;left:34px\"><a href=\"#\"><span class=\"ds-dot\"></span><span>本机配置</span></a></li><li class=\"ds-stop\" style=\"top:310px;left:150px\"><a href=\"#\"><span class=\"ds-dot\"></span><span>外参标定</span></a></li><li class=\"ds-stop ds-change\" style=\"top:438px;left:34px\"><a href=\"#\"><span class=\"ds-dot\"></span><span>首次启动<small>支线回到主线</small></span></a></li></ol></div></nav>",
+      "css": ".ds-rail { background: var(--enamel, #0e1a3c); color: var(--on-enamel, #f4f6fa); padding: 1.5rem 2.25rem; width: 380px; max-width: 100%; font-family: var(--sans, 'Overpass Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif); overflow: hidden; } .ds-rail-diagram { position: relative; height: 464px; } .ds-rail-lines { position: absolute; left: 0; top: 0; overflow: visible; } .ds-rail-lines path { fill: none; stroke-width: 8; stroke-linejoin: round; stroke-linecap: round; } .ds-l-main { stroke: var(--scarlet, #e03a2f); } .ds-l-branch { stroke: var(--amber, #f2a900); } .ds-rail-stops { list-style: none; margin: 0; padding: 0; } .ds-stop { position: absolute; transform: translateY(-50%); } .ds-stop a { display: flex; align-items: center; gap: 0.9rem; margin-left: -9px; color: var(--on-enamel-2, #aab8dc); text-decoration: none; font-size: 1rem; line-height: 1.2; white-space: nowrap; padding: 0.35rem 0.6rem 0.35rem 0; border-radius: 999px; transition: color 0.2s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-stop a:hover, .ds-stop a:focus-visible { color: var(--on-enamel, #f4f6fa); } .ds-stop a:focus-visible { outline: 3px solid var(--cobalt, #2c6be0); outline-offset: 3px; } .ds-dot { flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--on-enamel, #f4f6fa); box-shadow: 0 0 0 3px var(--enamel, #0e1a3c); transition: transform 0.2s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-stop:not(.ds-here) a:hover .ds-dot { transform: scale(1.2); } .ds-stop small { display: block; font-size: 0.75rem; font-weight: 400; color: var(--amber, #f2a900); margin-top: 0.15rem; } .ds-change .ds-dot { background: var(--enamel, #0e1a3c); box-shadow: 0 0 0 4px var(--on-enamel, #f4f6fa), 0 0 0 7px var(--enamel, #0e1a3c); } .ds-here a { color: var(--on-enamel, #f4f6fa); font-weight: 700; font-size: 1.125rem; } .ds-here .ds-dot { background: var(--scarlet, #e03a2f); box-shadow: 0 0 0 4px var(--on-enamel, #f4f6fa), 0 0 0 7px var(--enamel, #0e1a3c); transform: scale(1.25); }"
+    },
+    {
+      "name": "菜单按钮（小屏）",
+      "kind": "button",
+      "refersTo": "menu-button",
+      "description": "62rem 以下顶栏里的胶囊按钮，写着当前站名，点开展开线路图，箭头翻转 180°。",
+      "html": "<div class=\"ds-topbar\"><button class=\"ds-menu\" type=\"button\" aria-expanded=\"false\"><span>安装</span><svg viewBox=\"0 0 20 20\" width=\"20\" height=\"20\" aria-hidden=\"true\"><path d=\"M5 8l5 5 5-5\"/></svg></button></div>",
+      "css": ".ds-topbar { background: var(--enamel, #0e1a3c); padding: 0.8rem 1rem; display: flex; justify-content: flex-end; } .ds-menu { display: flex; align-items: center; gap: 0.35rem; min-height: 2.75rem; font: 700 0.9375rem/1 var(--sans, 'Overpass Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif); color: var(--on-enamel, #f4f6fa); background: var(--enamel-up, #19295a); border: 0; border-radius: 999px; padding: 0 0.6rem 0 1rem; cursor: pointer; } .ds-menu svg { fill: none; stroke: currentColor; stroke-width: 2; transition: transform 0.25s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-menu[aria-expanded=\"true\"] svg { transform: rotate(180deg); } .ds-menu:focus-visible { outline: 3px solid var(--cobalt, #2c6be0); outline-offset: 3px; }"
+    },
+    {
+      "name": "代码块与复制按钮",
+      "kind": "custom",
+      "refersTo": "code-block",
+      "description": "命令一律落在珐琅深蓝上，右上角是复制按钮；过长时横向滚动。",
+      "html": "<div class=\"ds-code\"><button class=\"ds-copy\" type=\"button\">复制</button><pre tabindex=\"0\"><code><span class=\"ds-fn\">uv</span> <span class=\"ds-str\">sync</span> <span class=\"ds-const\">--extra</span> <span class=\"ds-str\">realsense</span>\n<span class=\"ds-cmt\"># 下载手部检测模型</span>\n<span class=\"ds-fn\">scripts/fetch_models.sh</span></code></pre></div>",
+      "css": ".ds-code { background: var(--enamel, #0e1a3c); border-radius: 8px; display: grid; } .ds-code pre { margin: 0; padding: 0.15rem 1.25rem 1.1rem; overflow-x: auto; color: var(--on-enamel, #f4f6fa); font: 400 0.9375rem/1.75 var(--mono, 'JetBrains Mono Variable', ui-monospace, Menlo, Consolas, monospace); font-feature-settings: 'zero'; tab-size: 2; border-radius: 8px; } .ds-code pre:focus-visible { outline: 3px solid var(--cobalt, #2c6be0); outline-offset: 3px; } .ds-copy { justify-self: end; margin: 0.5rem 0.5rem 0 0; font: 500 0.8125rem/1 var(--sans, 'Overpass Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif); color: var(--on-enamel-2, #aab8dc); background: var(--enamel-up, #19295a); border: 0; border-radius: 6px; padding: 0.5rem 0.7rem; cursor: pointer; transition: color 0.2s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)), background 0.2s var(--ease, cubic-bezier(0.16, 1, 0.3, 1)); } .ds-copy:hover { color: var(--on-enamel, #f4f6fa); background: #24387a; } .ds-copy:focus-visible { outline: 3px solid var(--cobalt, #2c6be0); outline-offset: 3px; } .ds-str { color: #8fe0b0; } .ds-const { color: #9cc0ff; } .ds-cmt { color: #8e9cc4; } .ds-fn { color: #f4f6fa; }"
+    },
+    {
+      "name": "行内代码与按键帽",
+      "kind": "chip",
+      "refersTo": "inline-code",
+      "description": "正文里的标识符用淡底行内代码；按键用底边加厚的按键帽。",
+      "html": "<p class=\"ds-inline\">当前用户要在 <code>dialout</code> 组里；任何时候按 <kbd>空格</kbd> 急停。</p>",
+      "css": ".ds-inline { font: 400 1.0625rem/1.8 var(--sans, 'Overpass Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif); color: var(--ink, #121a30); margin: 0; } .ds-inline code { font-family: var(--mono, 'JetBrains Mono Variable', ui-monospace, Menlo, Consolas, monospace); font-size: 0.875em; font-feature-settings: 'zero'; background: #e4e9f3; color: var(--ink, #121a30); padding: 0.12em 0.4em; border-radius: 4px; overflow-wrap: anywhere; } .ds-inline kbd { font: 700 0.8125em/1 var(--mono, 'JetBrains Mono Variable', ui-monospace, Menlo, Consolas, monospace); background: var(--paper, #ffffff); border: 1px solid var(--ink, #121a30); border-bottom-width: 3px; border-radius: 5px; padding: 0.2em 0.5em; white-space: nowrap; }"
+    },
+    {
+      "name": "通告：机械臂会动",
+      "kind": "card",
+      "refersTo": "notice-label-moves",
+      "description": "运营通告式的提示。凡是会让机械臂动起来的步骤之前都放这一条。",
+      "html": "<aside class=\"ds-notice ds-notice-moves\"><p class=\"ds-notice-label\"><svg viewBox=\"0 0 20 20\" width=\"18\" height=\"18\" aria-hidden=\"true\"><path d=\"M10 2.5 18 17H2Z M10 8v4.2 M10 14.4v.2\"/></svg>从这一站开始机械臂会动</p><div class=\"ds-notice-body\">每一步都把手放在空格键上。</div></aside>",
+      "css": ".ds-notice { background: var(--paper, #ffffff); border: 1px solid var(--rule, #d3d9e7); border-radius: 8px; overflow: hidden; font: 400 1.0625rem/1.8 var(--sans, 'Overpass Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif); color: var(--ink, #121a30); } .ds-notice-label { display: flex; align-items: center; gap: 0.55rem; margin: 0; padding: 0.5rem 1.1rem; font-weight: 700; font-size: 0.9375rem; line-height: 1.4; background: var(--cobalt-ink, #1d52bd); color: #fff; } .ds-notice-label svg { flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; } .ds-notice-moves .ds-notice-label { background: var(--scarlet-ink, #bf271d); } .ds-notice-body { padding: 0.9rem 1.1rem 1rem; }"
+    },
+    {
+      "name": "通告：说明 / 注意 / 尚未验证",
+      "kind": "card",
+      "refersTo": "notice-label-info",
+      "description": "另外三种通告：钴蓝墨色的说明、琥珀底深墨字的注意、不用颜色只用虚线的尚未验证。",
+      "html": "<div class=\"ds-notices\"><aside class=\"ds-n\"><p class=\"ds-n-label\"><svg viewBox=\"0 0 20 20\" width=\"18\" height=\"18\" aria-hidden=\"true\"><path d=\"M10 2.5a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15Z M10 9v5 M10 6.2v.2\"/></svg>说明</p><div class=\"ds-n-body\">装完重新打开终端。</div></aside><aside class=\"ds-n ds-n-caution\"><p class=\"ds-n-label\"><svg viewBox=\"0 0 20 20\" width=\"18\" height=\"18\" aria-hidden=\"true\"><path d=\"M10 2.5 18 17H2Z M10 8v4.2 M10 14.4v.2\"/></svg>注意</p><div class=\"ds-n-body\">接错电压会烧舵机。</div></aside><aside class=\"ds-n ds-n-unverified\"><p class=\"ds-n-label\"><svg viewBox=\"0 0 20 20\" width=\"18\" height=\"18\" aria-hidden=\"true\"><path d=\"M10 3.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Z\"/></svg>尚未在真机验证</p><div class=\"ds-n-body\">这一步还没有在新套机上走过。</div></aside></div>",
+      "css": ".ds-notices { display: grid; gap: 1rem; } .ds-n { background: var(--paper, #ffffff); border: 1px solid var(--rule, #d3d9e7); border-radius: 8px; overflow: hidden; font: 400 1.0625rem/1.8 var(--sans, 'Overpass Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif); color: var(--ink, #121a30); } .ds-n-label { display: flex; align-items: center; gap: 0.55rem; margin: 0; padding: 0.5rem 1.1rem; font-weight: 700; font-size: 0.9375rem; line-height: 1.4; background: var(--cobalt-ink, #1d52bd); color: #fff; } .ds-n-label svg { flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; } .ds-n-caution .ds-n-label { background: var(--amber, #f2a900); color: var(--ink, #121a30); } .ds-n-unverified .ds-n-label { background: var(--paper, #ffffff); color: var(--ink, #121a30); border-bottom: 1px dashed var(--ink-2, #465070); } .ds-n-body { padding: 0.9rem 1.1rem 1rem; }"
+    },
+    {
+      "name": "验证记号",
+      "kind": "chip",
+      "description": "实心圆是已在真机验证，空心环是尚未验证；靠形状区分，不靠颜色。",
+      "html": "<p class=\"ds-marks\"><span class=\"ds-mark ds-ok\"><i aria-hidden=\"true\"></i>已在真机验证</span><span class=\"ds-mark ds-todo\"><i aria-hidden=\"true\"></i>尚未在真机验证</span></p>",
+      "css": ".ds-marks { display: flex; gap: 1.5rem; flex-wrap: wrap; margin: 0; font-family: var(--sans, 'Overpass Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif); color: var(--ink, #121a30); } .ds-mark { display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.875rem; font-weight: 700; white-space: nowrap; } .ds-mark i { width: 0.8rem; height: 0.8rem; border-radius: 50%; border: 2.5px solid var(--ink, #121a30); } .ds-ok i { background: var(--ink, #121a30); } .ds-todo { color: var(--ink-2, #465070); } .ds-todo i { border-color: var(--ink-2, #465070); }"
+    },
+    {
+      "name": "步骤标题与位置行",
+      "kind": "custom",
+      "description": "步骤页的二级标题是一个带编号的站点圆环，边色取本页线色；位置行说明本页在哪条线的第几站。",
+      "html": "<div class=\"ds-step-demo\"><p class=\"ds-where\"><i aria-hidden=\"true\"></i>主线<span>全程第 2 站，共 7 站</span></p><h2 class=\"ds-step\"><span class=\"ds-step-ring\">1</span>拿到代码</h2></div>",
+      "css": ".ds-step-demo { font-family: var(--sans, 'Overpass Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif); color: var(--ink, #121a30); background: var(--porcelain, #f4f6fa); padding: 1.5rem; } .ds-where { display: flex; align-items: center; gap: 0.75rem; margin: 0 0 2rem; font-size: 0.9375rem; font-weight: 700; color: var(--line-ink, #bf271d); } .ds-where i { display: inline-block; width: 1.75rem; height: 6px; border-radius: 3px; background: var(--line, #e03a2f); } .ds-where span { font-weight: 400; color: var(--ink-2, #465070); } .ds-step { display: flex; align-items: center; gap: 1rem; margin: 0; font-size: 1.625rem; line-height: 1.3; font-weight: 800; } .ds-step-ring { flex: none; width: 2.6rem; height: 2.6rem; border-radius: 50%; display: grid; place-items: center; background: var(--porcelain, #f4f6fa); border: 5px solid var(--line, #e03a2f); font: 800 1.125rem/1 var(--sans, 'Overpass Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif); }"
+    },
+    {
+      "name": "线路表",
+      "kind": "custom",
+      "description": "首页列出一条线上各站的整行链接：线色圆环、站名、一句说明，行间只有分隔线。",
+      "html": "<ul class=\"ds-routes\"><li><a href=\"#\"><i aria-hidden=\"true\"></i><b>安装</b><span>装依赖，不接硬件先跑通</span></a></li><li><a href=\"#\"><i aria-hidden=\"true\"></i><b>接线与上电</b><span>三块控制板、供电、确认应答</span></a></li><li class=\"ds-b\"><a href=\"#\"><i aria-hidden=\"true\"></i><b>外参标定</b><span>让深度相机知道两只臂在哪</span></a></li></ul>",
+      "css": ".ds-routes { list-style: none; padding: 0; margin: 0; font: 400 1.0625rem/1.8 var(--sans, 'Overpass Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif); color: var(--ink, #121a30); } .ds-routes li { border-top: 1px solid var(--rule, #d3d9e7); } .ds-routes li:last-child { border-bottom: 1px solid var(--rule, #d3d9e7); } .ds-routes a { display: grid; grid-template-columns: 3.25rem 9.5rem 1fr; align-items: center; gap: 0.5rem; padding: 0.8rem 0; color: inherit; text-decoration: none; } .ds-routes a:hover b { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 0.22em; } .ds-routes a:focus-visible { outline: 3px solid var(--cobalt, #2c6be0); outline-offset: 3px; } .ds-routes i { width: 1.1rem; height: 1.1rem; border-radius: 50%; border: 4px solid var(--scarlet, #e03a2f); background: var(--porcelain, #f4f6fa); } .ds-routes .ds-b i { border-color: var(--amber, #f2a900); } .ds-routes b { font-weight: 700; } .ds-routes span { color: var(--ink-2, #465070); font-size: 0.9375rem; }"
+    },
+    {
+      "name": "上一站 / 下一站",
+      "kind": "nav",
+      "refersTo": "onward-link",
+      "description": "页尾导航，上方是一条 6px 的本页线色粗线；悬停时站名加线色下划线。",
+      "html": "<nav class=\"ds-onward\" aria-label=\"上一站与下一站\"><a href=\"#\"><small>上一站</small><span>总览</span></a><a class=\"ds-next\" href=\"#\"><small>下一站</small><span>接线与上电</span></a></nav>",
+      "css": ".ds-onward { padding-top: 1.75rem; border-top: 6px solid var(--line, #e03a2f); display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; font-family: var(--sans, 'Overpass Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif); } .ds-onward a { color: var(--ink, #121a30); text-decoration: none; display: grid; gap: 0.15rem; padding: 0.25rem 0; } .ds-onward small { font-size: 0.875rem; color: var(--ink-2, #465070); } .ds-onward a span { font-size: 1.375rem; font-weight: 800; line-height: 1.3; } .ds-onward a:hover span { text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 0.2em; text-decoration-color: var(--line, #e03a2f); } .ds-onward a:focus-visible { outline: 3px solid var(--cobalt, #2c6be0); outline-offset: 3px; } .ds-next { text-align: right; }"
+    },
+    {
+      "name": "时刻表式表格",
+      "kind": "custom",
+      "description": "只有横线的表格：表头下 2px 深墨线，行间 1px 分隔线，末行回到深墨线，首列加粗。",
+      "html": "<table class=\"ds-table\"><thead><tr><th>按键</th><th>作用</th><th>状态</th></tr></thead><tbody><tr><td>空格</td><td>急停</td><td>已在真机验证</td></tr><tr><td>1 / 2 / 3</td><td>切换模式</td><td>已在真机验证</td></tr></tbody></table>",
+      "css": ".ds-table { border-collapse: collapse; width: 100%; font: 400 0.9375rem/1.6 var(--sans, 'Overpass Variable', 'Noto Sans SC Variable', 'PingFang SC', 'Microsoft YaHei', sans-serif); color: var(--ink, #121a30); font-feature-settings: 'tnum'; } .ds-table th { text-align: left; font-weight: 700; color: var(--ink-2, #465070); font-size: 0.8125rem; padding: 0 1rem 0.5rem 0; border-bottom: 2px solid var(--ink, #121a30); white-space: nowrap; } .ds-table td { padding: 0.7rem 1rem 0.7rem 0; border-bottom: 1px solid var(--rule, #d3d9e7); vertical-align: top; } .ds-table td:first-child { font-weight: 700; } .ds-table tr:last-child td { border-bottom-color: var(--ink, #121a30); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "夜间线路图",
+    "overview": "**Creative North Star: \"夜间线路图\"**\n\n上手是一趟沿着线路走的行程：每一页是一站，新套机的流程是一条离开主线又回来的支线，读者随时看得见自己在哪一站、下一站是什么。左边是一块珐琅深蓝的线路牌，承载瓷白的站点和四条线的颜色；右边是瓷白的阅读栏，深墨色的字，命令落在与线路牌同一种深蓝上。\n\n整套系统是平的、密度适中的、为强光下边看边敲命令而设：正文字号偏大（1.0625rem / 行高 1.8），代码块对比强烈，状态靠形状而不是只靠颜色区分。它拒绝的是默认的文档外壳：白页面、灰色目录树、蓝色链接列表。\n\n落地时与方向稿有一处出入：方向稿写“除站点标记外什么都不动”，实际构建保留了 0.2s 的悬停反馈（站名变亮、站点放大到 1.2 倍、复制按钮换底色）和小屏菜单箭头的 0.25s 翻转。以构建为准。",
+    "keyCharacteristics": [
+      "固定在左侧、380px 宽的珐琅深蓝线路牌，线路只在 45° 和 90° 转弯。",
+      "四条线四种颜色：主线猩红、新套机支线琥珀、现场线绿、速查线钴蓝；页面通过 `data-line` 继承自己所在线路的颜色。",
+      "瓷白阅读栏，最宽 44rem，步骤页的每个二级标题是一个带编号的站点圆环。",
+      "代码落在珐琅深蓝上；提示是带色条标签的“运营通告”；表格是只有横线的时刻表。",
+      "没有阴影、没有渐变；圆环和分隔线承担全部层次。",
+      "换页时，亮着的站点标记沿线路移到下一站，这是唯一的大动作。"
+    ],
+    "rules": [
+      {
+        "name": "The Page Line Rule",
+        "body": "每一页通过 `<html data-line>` 设定 `--line` 和 `--line-ink`；步骤圆环、步骤连线、位置行色条、列表记号、页尾粗线都读这两个变量，不写死某一种线色。新页面属于哪条线，就自动是哪种颜色。",
+        "section": "colors"
+      },
+      {
+        "name": "The Ink Pair Rule",
+        "body": "每种线色都有一个更深的 `-ink` 版本。在瓷白或纸白底上，亮色只画线、圆环和色块，文字一律用 `-ink`；白字只压在 `scarlet-ink` 和 `cobalt-ink` 上，琥珀底上压深墨字。在珐琅深蓝上，亮色可以直接作文字（如换乘站的琥珀小字）。",
+        "section": "colors"
+      },
+      {
+        "name": "The One Family Rule",
+        "body": "标题、正文、标签同属一个无衬线族；等宽字只出现在代码、命令和按键帽里，不用来做装饰性的标签。",
+        "section": "typography"
+      },
+      {
+        "name": "The Solid Ring Rule",
+        "body": "`box-shadow` 只允许 `0 0 0 Npx` 的实心环，用于站点圆点。任何带模糊或偏移的投影都不属于这个系统。",
+        "section": "elevation"
+      },
+      {
+        "name": "The 45/90 Rule",
+        "body": "线路只在 45° 和 90° 转弯，站点只落在线上。新增线路或站点时延续这套几何，不画曲线，不画任意角度。",
+        "section": "shapes"
+      },
+      {
+        "name": "The Shape Carries State Rule",
+        "body": "状态由形状表达，颜色只是加强：已验证是实心圆，未验证是空心环；换乘站是白环；当前站是更大的实心圆加粗体站名。",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "Do 让新页面通过 `route.ts` 登记为某条线上的一站，并由 `data-line` 取得 `--line` / `--line-ink`；页面内的线色元素都读这两个变量。",
+      "Do 把所有命令放进珐琅深蓝的代码块，保留复制按钮和横向滚动，命令原文不改写。",
+      "Do 在瓷白或纸白底上用 `-ink` 版本的线色写字，亮色只用于线、圆环和色块。",
+      "Do 用形状表达状态：实心圆是已验证，空心环是未验证，白环是换乘站。",
+      "Do 在任何会让机械臂动起来的步骤之前放一条“机械臂会动”通告。",
+      "Do 用线分隔而不是用框：表格只画横线，列表只画行线。",
+      "Do 保留 3px 钴蓝焦点环，并在系统要求减少动态效果时关闭全部过渡。",
+      "Do 需要画面时用与实物一致的示意图，颜色取自色板。"
+    ],
+    "donts": [
+      "Don't 把这套系统用到 `frontend/` 的操作控制台上，那是另一个界面。",
+      "Don't 使用带模糊或偏移的投影，也不要使用渐变；`box-shadow` 只用于站点的实心环。",
+      "Don't 让线路以 45° 和 90° 之外的角度转弯，也不要画曲线。",
+      "Don't 在同一张线路图上点亮多于一个当前站。",
+      "Don't 在瓷白底上用亮琥珀、亮绿或亮猩红写字。",
+      "Don't 只靠颜色区分“已验证”与“未验证”。",
+      "Don't 在换页的站点移动之外增加入场动画或滚动动画；现有的动效只有悬停反馈和菜单箭头。",
+      "Don't 放入虚构的照片、截图或数字。"
+    ]
+  }
+}

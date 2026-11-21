@@ -1,0 +1,65 @@
+---
+layout: ../layouts/Doc.astro
+title: 填写本机配置
+description: 套机自带的参数已经记录在仓库里。这一站只有两件事要做：告诉程序两个腕部相机插在哪，把云台转到工作姿态。
+---
+import Notice from "../components/Notice.astro";
+
+## 复制套机档案
+
+```bash
+cp config/kits/kit-01/config.yaml config/config.yaml
+mkdir -p calibration && cp config/kits/kit-01/extrinsics.yaml calibration/
+```
+
+第一个文件是配置，第二个是深度相机相对两只臂的外参。它们记录的是**跟着套机走**的参数：
+
+| 参数 | 为什么换电脑不变 |
+|---|---|
+| 三块控制板的串口路径 | 按控制板的 USB 序列号命名 |
+| 深度相机的序列号 | 写在相机里 |
+| 云台舵机的 ID 和工作刻度 | 写在舵机里 |
+| 外参、腕部相机的安装偏角 | 取决于套机的机械结构 |
+
+对照上一站 `scan` 的输出看一眼：`config/config.yaml` 里两只臂的串口路径应该都出现在输出里。
+
+## 填两个腕部相机的路径
+
+这是唯一**跟着电脑走**的参数。两个腕部相机的型号和序列号完全相同，程序只能按它们插在电脑的哪个 USB 口来区分。
+
+打开 `config/config.yaml`，把上一站 `soarm-tools cameras` 输出的两条路径填进去：
+
+```yaml
+cameras:
+  wrist_left:
+    device: /dev/v4l/by-path/...-usbv2-...-video-index0
+  wrist_right:
+    device: /dev/v4l/by-path/...-usbv2-...-video-index0
+```
+
+左右先随便填，下一站启动后会验证，反了再对调。
+
+<Notice kind="caution">
+路径必须用带 `usbv2` 的那种写法。之后腕部相机换插到别的 USB 口，这两项要重新填。
+</Notice>
+
+## 把云台转到工作姿态
+
+断电时云台没有力矩，相机是垂着的。把它转到展示用的姿态：
+
+<Notice kind="moves">
+云台会从当前位置以每秒 15° 慢慢转动。转动范围内不要有线缆缠绕。
+</Notice>
+
+```bash
+uv run soarm-tools head-set --port <云台串口> \
+    --pan-id 7 --tilt-id 8 --pan 2047 --tilt 1705
+```
+
+`<云台串口>` 换成上一站记下的路径。转完后相机朝正前方、低头约 25°，画面覆盖两臂前方观众伸手的区域。之后只要不断电，云台就由舵机自己的力矩撑着，不需要任何程序管它。
+
+想先看一眼当前刻度而不动它，去掉 `--pan` 和 `--tilt` 即可。
+
+<Notice kind="unverified">
+`head-set` 是展会收尾时补上的命令，只在工作刻度上做过原地定位测试，没有做过大幅转动。第一次用时手扶着相机，转得不对就拔掉云台电源。
+</Notice>

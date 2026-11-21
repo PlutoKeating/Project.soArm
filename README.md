@@ -123,6 +123,8 @@ website/           上手文档站点（Astro，部署到 Cloudflare Workers）
 config/            配置模板与套机档案；本机的 config.yaml 不入库
 scripts/           生产运行、借臂与恢复、下载模型
 docs/              架构、接口、上手流程、设备实测记录
+PRODUCT.md         产品事实：读者是谁、做什么、不能虚构什么（设计与文档工作的依据）
+DESIGN.md          文档站点的设计系统（不适用于 frontend/ 的控制台）
 calibration/       运行时生成的外参与样本（不入库）
 models/            手部模型（脚本下载，不入库）
 ```
