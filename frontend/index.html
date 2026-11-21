@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SO-ARM 演示控制台</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>SO-ARM 演示控制台</h1>
+      <span id="mock-badge" class="badge warn" hidden>模拟模式 · 未连接真机</span>
+    </div>
+    <div class="link">
+      <span id="link-dot" class="dot"></span>
+      <span id="link-text">连接中…</span>
+      <span id="loop-hz" class="muted"></span>
+    </div>
+    <button id="estop" class="estop" type="button">
+      <span class="estop-label">急停</span>
+      <kbd>空格</kbd>
+    </button>
+  </header>
+
+  <div id="estop-banner" class="banner danger" hidden>
+    已急停：机械臂保持在当前位置，所有运动指令被忽略。确认安全后点击右上角按钮解除。
+  </div>
+  <div id="toast" class="banner warn" hidden></div>
+
+  <section class="controls">
+    <div class="modes" role="radiogroup" aria-label="控制模式">
+      <button type="button" data-mode="idle"><kbd>0</kbd>待机</button>
+      <button type="button" data-mode="keyboard"><kbd>1</kbd>键盘控制</button>
+      <button type="button" data-mode="follow"><kbd>2</kbd>腕部跟随</button>
+      <button type="button" data-mode="fused"><kbd>3</kbd>深度引导</button>
+    </div>
+    <div class="actions">
+      <button type="button" id="btn-home"><kbd>G</kbd>回初始位</button>
+      <button type="button" id="btn-rest">收到休息位并释放力矩</button>
+      <button type="button" id="btn-torque">释放力矩</button>
+      <button type="button" id="btn-reconnect">重新连接设备</button>
+    </div>
+  </section>
+
+  <main class="grid">
+    <section class="panel" data-arm="left">
+      <header><h2>左臂</h2><span class="arm-status"></span></header>
+      <div class="video" data-alt="左臂腕部相机画面"><div class="cam-info"></div></div>
+      <div class="arm-body"></div>
+    </section>
+
+    <section class="panel" id="head-panel">
+      <header><h2>头部深度相机</h2><span id="head-status" class="arm-status"></span></header>
+      <div class="video" id="head-video" data-alt="头部深度相机画面"><div class="cam-info" id="head-cam-info"></div></div>
+      <div class="head-body">
+        <div class="readout" id="head-readout"></div>
+        <div class="keys" id="head-keys"></div>
+        <details id="calib">
+          <summary>外参标定（深度引导前做一次）</summary>
+          <ol class="steps">
+            <li>先在键盘控制模式下用方向键把云台调到能看全两臂工作区的角度，之后不要再动云台。</li>
+            <li>选择要标定的臂，打开“采点”，把夹爪尖移到深度相机看得见的位置，在上方画面里点击夹爪尖。</li>
+            <li>换不同的远近、高低、左右位置重复，至少 4 个点，建议 8 个。</li>
+            <li>点“求解并保存”。残差在 15 mm 以内可用。另一只臂重复一遍。</li>
+          </ol>
+          <div class="calib-row">
+            <label><input type="radio" name="calib-arm" value="left" checked> 左臂</label>
+            <label><input type="radio" name="calib-arm" value="right"> 右臂</label>
+            <label class="switch"><input type="checkbox" id="calib-on"> 采点</label>
+          </div>
+          <div class="calib-row">
+            <span id="calib-count" class="muted"></span>
+            <button type="button" id="calib-undo">撤销上一点</button>
+            <button type="button" id="calib-clear">清空</button>
+            <button type="button" id="calib-solve" class="primary">求解并保存</button>
+          </div>
+          <div class="calib-row"><button type="button" id="head-preset">云台回到标定姿态</button></div>
+          <p id="calib-result" class="muted"></p>
+        </details>
+      </div>
+    </section>
+
+    <section class="panel" data-arm="right">
+      <header><h2>右臂</h2><span class="arm-status"></span></header>
+      <div class="video" data-alt="右臂腕部相机画面"><div class="cam-info"></div></div>
+      <div class="arm-body"></div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
