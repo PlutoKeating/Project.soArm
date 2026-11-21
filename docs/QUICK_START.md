@@ -22,17 +22,38 @@ uv run soarm-console --mock
 
 打开 <http://127.0.0.1:8000>。模拟模式下机械臂和云台是软件替身，三种模式的逻辑都可以操作；相机若已在配置里填写则使用真实相机。
 
-## 3. 真机首次上电检查表
+## 3. 接上现有的套机（换了电脑）
 
-以下步骤每台设备只需做一次，结果写入 `config/config.yaml`（从 `config/config.example.yaml` 复制，不入库）。
+套机自带的参数已经记录在 `config/kits/` 里，换一台电脑不变。这是最常见的情况，不需要走第 4 节的首次上电流程。
 
-### 3.1 接线与供电
+```bash
+cp config/kits/kit-01/config.yaml config/config.yaml
+mkdir -p calibration && cp config/kits/kit-01/extrinsics.yaml calibration/
+```
+
+1. **接线上电**（见 4.1），然后确认三块控制板都有应答：`uv run soarm-tools scan`。输出里串口路径的序列号应与 `config/config.yaml` 里的一致；只有 2 个舵机的那个串口是云台。
+2. **填两个腕部相机的路径**：`uv run soarm-tools cameras`，把输出的两条 `/dev/v4l/by-path/...-usbv2-...-index0` 填进 `cameras.wrist_left.device` 和 `cameras.wrist_right.device`。这两项跟着电脑的 USB 口走，是唯一必须重新填的。左右先随便填，启动后把手放到某只臂的夹爪前，看手出现在哪个面板，反了就对调。
+3. **把云台转到工作姿态**。断电后云台是松的，相机会垂下去：
+
+   ```bash
+   uv run soarm-tools head-set --port <云台串口> --pan-id 7 --tilt-id 8 --pan 2047 --tilt 1705
+   ```
+
+   它先从当前位置上力矩，再以 15°/秒慢慢转过去并保持。不带 `--pan` / `--tilt` 时只读取当前刻度。之后只要不断电，云台就一直由舵机力矩撑着。
+4. **启动并验证**：按 4.6 的顺序走一遍。
+5. **确认外参还能用**：按 `3` 进入深度引导，把手伸到深度相机看得见、腕部相机看不见的位置，较近的那只臂应转过去并把手带进腕部画面。对不上（两只臂和相机立柱的相对位置动过）就按 4.7 重新标定。
+
+## 4. 全新套机的首次上电检查表
+
+以下步骤每套设备只需做一次，结果写入 `config/config.yaml`（从 `config/config.example.yaml` 复制，不入库）。跑通后把结果存成 `config/kits/<新套机>/`，见 [config/kits/README.md](../config/kits/README.md)。
+
+### 4.1 接线与供电
 
 - 三块控制板的跳线帽都在 **B 位（USB ↔ SERVO）**。
-- 每块控制板的 DC 口接舵机电源，只插 USB 时舵机不应答。STS3215 有 7.4 V 和 12 V 两种版本，**上电前务必核对舵机标签上的电压与电源一致**，接错会烧舵机。
+- 每块控制板的 DC 口接舵机电源，只插 USB 时舵机不应答。STS3215 有 7.4 V 和 12 V 两种版本，**上电前务必核对舵机标签上的电压与电源一致**，接错会烧舵机。一号套机的舵机都是 7.4 V 版，实测机械臂供电约 5 V、云台约 7.7 V。
 - 上电时手臂会保持无力状态，先把它摆在自然收拢的位置。
 
-### 3.2 找到串口并分辨三块板
+### 4.2 找到串口并分辨三块板
 
 ```bash
 uv run soarm-tools scan
@@ -40,7 +61,7 @@ uv run soarm-tools scan
 
 输出每个串口上的舵机 ID、电压、位置和已保存的限位。这一步只读。ID 为 1–6 的是机械臂，只有 2 个舵机的是云台。把路径填入 `arms.left.port`、`arms.right.port`、`head.port`，把云台的两个 ID 填入 `head.pan.id`、`head.tilt.id`。左右臂分不清时，运行 `soarm-tools watch left`，用手动一下某只臂，看读数是否变化。
 
-### 3.3 核对机械臂校准
+### 4.3 核对机械臂校准
 
 控制台直接使用舵机里已保存的校准（零点偏置和行程限位），不需要校准文件。`scan` 输出里各关节的“限位”不是 `[0, 4095]`（腕部旋转除外）就说明已校准过。
 
@@ -56,19 +77,20 @@ uv run soarm-tools watch left
 uv run soarm-tools calibrate left
 ```
 
-本套设备两只臂的校准已核对可用，见 [devices/VERIFIED.md](devices/VERIFIED.md)。
+一号套机两只臂的校准已核对可用，见 [devices/VERIFIED.md](devices/VERIFIED.md)。
 
-### 3.4 云台
+### 4.4 云台
 
 云台的两个舵机出厂时没有校准，而且停放位置可能紧贴编码器的 0/4095 回绕点，直接用会在转过回绕点时绕一整圈。所以先把工作姿态设成刻度中点：
 
 1. `uv run soarm-tools scan` 找到云台串口和两个舵机的 ID，填入 `head.port`、`head.pan.id`、`head.tilt.id`。分不清哪个是俯仰时，运行 `uv run soarm-tools head-watch`，用手让相机点头，看哪个读数在变。
 2. 用手把相机摆到工作姿态并扶住：朝正前方，画面要覆盖两臂前方观众伸手的区域（台前 0.3–1 米、腰到胸口高度）。**不要让它朝下看地面**，否则深度相机和腕部相机看到的不是同一只手，后面的标定和引导都无从谈起。
-3. 把当前姿态设为零点并上力矩（LeRobot 的 `set_half_turn_homings`）。之后 `center` 就是 2047，`min` / `max` 在它两侧留出需要的范围。
+3. 把当前姿态设为零点并上力矩（LeRobot 的 `set_half_turn_homings`）。之后这个姿态就是刻度 2047。这一步没有封装成命令，一号套机当时是用 LeRobot 的总线接口手工做的。
+4. 之后用 `uv run soarm-tools head-set --port <云台串口> --pan-id <ID> --tilt-id <ID> --tilt <刻度>` 调整俯仰：刻度每减小 11.4 相机抬头 1°。记下两个刻度：**工作刻度**（展示时用）和**标定刻度**（低头到能看见手臂伸出，做手眼标定时用）。
 
-本套设备的云台参数见 [devices/VERIFIED.md](devices/VERIFIED.md)。
+控制台不接管云台（`head.port` 留空）：它只需要撑住相机不动，由舵机自己的力矩保持。一号套机的云台参数见 [config/kits/README.md](../config/kits/README.md)。
 
-### 3.5 相机
+### 4.5 相机
 
 ```bash
 uv run soarm-tools cameras
@@ -82,9 +104,9 @@ uv run soarm-tools cameras
 
 画面是倒的就设 `rotate: 180`。RealSense 的序列号以该命令输出的为准，填入 `cameras.head.device`（只有一台时可留空）。
 
-本套设备的实测结果见 [devices/VERIFIED.md](devices/VERIFIED.md)。
+一号套机的实测结果见 [devices/VERIFIED.md](devices/VERIFIED.md)。
 
-### 3.6 启动并逐项验证
+### 4.6 启动并逐项验证
 
 ```bash
 uv run soarm-console
@@ -93,7 +115,7 @@ uv run soarm-console
 建议顺序，每一步都把手放在空格键上。首次上电建议一次只动一只臂：在另一只臂的面板上点“停用”，它就只保持当前位置。
 
 1. 页面上两臂都显示已连接，三路画面正常。连接时手臂会上力矩并停在原地。
-2. 按 `G` 回初始位。姿态应是夹爪水平朝前、离基座约 26 cm，腕部相机画面是正的。画面是侧的就调整 `home.wrist_roll`（本套设备是 −90°）。
+2. 按 `G` 回初始位。姿态应是夹爪水平朝前、离基座约 26 cm，腕部相机画面是正的。画面是侧的就调整 `home.wrist_roll`（默认 −90°）。
 3. 按 `1` 进入键盘控制，逐个轻点方向键，确认前后、左右、上下方向与界面标注一致。
 4. 按 `2` 进入腕部跟随。把手伸到腕部相机前 30–40 cm 并慢慢向各方向移动：
    - 手臂应朝手的方向转。如果反而躲开，把该臂的 `follow_pan_sign` 或 `follow_tilt_sign` 改为 `-1`。
@@ -101,11 +123,9 @@ uv run soarm-console
    - 手拿开约 1.5 秒后应回初始位。
 5. 点“收到休息位并释放力矩”。休息位就是连接时手臂停放的姿态。
 
-### 3.7 外参标定（深度引导需要）
+### 4.7 外参标定（深度引导需要）
 
-前提：云台已固定在工作姿态，之后不要再动；深度相机画面里能看到观众伸手的区域。
-
-**粗标定：用机械臂自身（不需要人手）。** 先把相机低头到能看到手臂伸出的角度（本套设备约 59°），生产运行中则先借出这只臂：
+**粗标定：用机械臂自身（不需要人手）。** 先用 `head-set` 把相机低头到能看到手臂伸出的标定刻度（一号套机是俯仰 2087，低头约 59°），生产运行中则先借出这只臂：
 
 ```bash
 scripts/lab.sh lend right
@@ -113,7 +133,16 @@ uv run soarm-tools body-calib right     # 约 1 分半：摆 16 个姿态、求�
 scripts/lab.sh restore
 ```
 
-它会把手臂骨架画在 `calibration/body_right/check_*.jpg` 上，黄色骨架应压在手臂上。然后把相机抬回工作角度，外参会按地面法线自动换算。
+它会把手臂骨架画在 `calibration/body_right/check_*.jpg` 上，黄色骨架应压在手臂上。两只臂都做完后，把相机抬回工作刻度，并把外参换算到这个角度：
+
+```bash
+uv run soarm-tools head-set --port <云台串口> --pan-id 7 --tilt-id 8 --tilt 1705
+uv run soarm-tools tilt-calib --pitch-down 25     # 需要深度相机没有被控制台占用
+```
+
+`tilt-calib` 在两个角度下各测一次地面方向，两者之差就是相机转过的角度；`--pitch-down` 给出此刻大致的低头角度，用来在画面里认出地面。重复执行不会累加。之后云台不要再动：运行中控制台会持续核对地面方向，对不上就暂停深度引导。
+
+> 这两条命令是展会收尾时补上的。当天的换算是手工做的，`tilt-calib` 只有单元测试，`head-set` 只在原地做过定位测试，第一次用时请加 `--dry-run` 先看输出。
 
 **估计腕部相机的安装偏角。** 腕部相机不是沿夹爪指向看的，这个偏角要估出来深度引导才准。进入腕部跟随或深度引导模式，正常伸手互动即可：腕部相机和深度相机同时看到手时会自动积累样本（落盘保存，重启不丢），页面“外参标定”里显示样本数。每只臂攒够 20 对以上后点“用自动样本估计所选臂的安装偏角”。结果里的散布在 6° 以内可用。
 
@@ -134,7 +163,7 @@ uv run soarm-tools solve-calib
 
 之后按 `3` 进入深度引导：把手伸到深度相机看得见、腕部相机看不见的位置，较近的那只臂应转过去对准手。
 
-## 4. 日常使用
+## 5. 日常使用
 
 调试时直接在终端运行，Ctrl+C 结束（会自动先收到休息位再释放力矩）：
 
@@ -143,7 +172,7 @@ uv run soarm-console                 # 启动后停在待机
 uv run soarm-console --mode follow   # 启动后自动进入腕部跟随
 ```
 
-## 5. 生产运行（展示时）
+## 6. 生产运行（展示时）
 
 用 systemd 用户服务常驻运行：脱离终端，异常退出会自动拉起并回到 `start_mode` 指定的模式。
 
@@ -156,7 +185,7 @@ scripts/production.sh stop       # 停止：两只臂先收到休息位再释放
 
 准备工作：
 
-- 在 `config/config.yaml` 里设 `start_mode: follow`。
+- 在 `config/config.yaml` 里设 `start_mode`：有外参用 `fused`（腕部跟随 + 深度引导），没有就用 `follow`。
 - 生产运行以仓库目录里当前检出的代码为准，应检出 `main` 分支。
 - 不需要的相机设 `enabled: false`，设备就不会被占用。
 - 运行期间不要在这个目录里切换分支或改代码；后续开发在单独的 git worktree 里做，并使用别的端口。
@@ -202,15 +231,16 @@ scripts/lab.sh deploy          # 没人互动时重启生产，加载主目录�
 - **空闲判断**：`lend` 和 `deploy` 默认先等所有在展示的臂连续 8 秒没在跟手；120 秒内一直有人就放弃。加 `--force` 跳过。
 - 借出期间网页顶部有黄色提示条，写明哪只臂没有参与展示。
 
-## 6. 常见问题
+## 7. 常见问题
 
 | 现象 | 处理 |
 |---|---|
 | `scan` 没有舵机应答 | 检查 DC 电源和跳线帽位置；换一根 USB 线 |
-| 页面显示某关节“行程限位是出厂值” | 该臂没有校准过，按 3.3 运行 `soarm-tools calibrate` |
+| 页面显示某关节“行程限位是出厂值” | 该臂没有校准过，按 4.3 运行 `soarm-tools calibrate` |
 | 手臂动到一半提示“受到阻挡，已让位” | 有东西挡住了，或速度相对负载过快。排除遮挡后重试；确属误报可调大 `safety.stall_error_deg` |
 | 键盘控制提示“到达可达范围边界” | 目标超出了机构可达范围或工作空间包围盒，往回移动即可 |
-| 深度引导不动，面板提示云台偏离标定姿态 | 点“云台回到标定姿态” |
-| 跟随发抖或来回摆 | 调小 `follow.gain` 或 `follow.lead_s`；冲过头再回来就调小 `follow.aim_scale` |
-| 跟随跟不上 | 先看页面上腕部相机的帧率是否约 30；再调大 `follow.gain`、`follow.max_speed_deg_s` |
+| 深度引导不动 | 云台多半掉电下垂或被碰歪了：用 `soarm-tools head-set` 转回工作刻度。仍不行就按 4.7 重新标定 |
+| 重新上电后相机垂着 | 正常，云台断电后没有力矩。按第 3 节用 `head-set` 转回工作姿态 |
+| 跟随发抖或来回摆 | 调小 `follow.filter_min_cutoff`（手不动时更稳）或 `follow.max_lead_deg`（掉头时少冲过头）；整体偏转过头就调小 `follow.aim_scale` |
+| 跟随跟不上 | 先看页面上腕部相机的帧率是否约 30；再调小 `follow.smooth_time`、调大 `follow.max_speed_deg_s` |
 | RealSense 打不开 | 确认接在 USB 3 口；`uv run soarm-tools cameras` 查看是否被识别；序列号填的是否是该命令输出的那个 |

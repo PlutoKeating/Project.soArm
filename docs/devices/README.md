@@ -1,5 +1,7 @@
 # SO-ARM 摄像头硬件识别总览与三机协同配置指南
 
+> **阅读前注意**：本目录的三篇设备报告是在最初那台电脑上生成的。其中 `/dev/v4l/by-path/pci-…` 路径、`/dev/videoN` 编号和 USB 口位都**跟着电脑走**，换一台电脑就不同，只能当作示例。跟着套机走的参数（控制板序列号、深度相机序列号、云台舵机 ID 与刻度、外参）以 [`config/kits/`](../../config/kits/README.md) 和 [VERIFIED.md](VERIFIED.md) 为准。
+
 > **注意**：本报告有几处与后来的实测不一致（USB 口位、路径写法、RealSense 序列号），见 [VERIFIED.md](./VERIFIED.md)，冲突时以它为准。
 
 > 生成日期：2026-11-21  
