@@ -94,6 +94,7 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .estop.active { background: var(--panel-2); border-color: var(--danger); color: var(--danger); }
 
 .banner { padding: 10px 14px; border-radius: var(--radius); margin-bottom: 12px; font-weight: 500; }
+#lent-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .banner.danger { background: var(--danger-deep); color: #fff; }
 .banner.warn { background: #3a2f0d; color: var(--warn); border: 1px solid #6b5514; }
 

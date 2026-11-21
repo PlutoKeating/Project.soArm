@@ -116,7 +116,9 @@ function renderArm(panel, arm, cam) {
   const statusEl = $(".arm-status", panel);
   if (!arm) { statusEl.textContent = "未配置"; return; }
   statusEl.className = "arm-status";
-  if (!arm.connected) {
+  if (arm.lent) {
+    statusEl.textContent = "已借给开发调试";
+  } else if (!arm.connected) {
     statusEl.textContent = arm.error ? `未连接：${arm.error}` : "未连接";
     statusEl.classList.add("bad");
   } else {
@@ -156,6 +158,9 @@ function render() {
   $("#estop").classList.toggle("active", state.estop);
   $(".estop-label").textContent = state.estop ? "解除急停" : "急停";
   $("#estop-banner").hidden = !state.estop;
+  const lent = Object.entries(state.arms).filter(([, a]) => a.lent).map(([n]) => (n === "left" ? "左臂" : "右臂"));
+  $("#lent-banner").hidden = lent.length === 0;
+  $("#lent-text").textContent = `${lent.join("、")}已借给开发调试，没有参与展示。`;
   for (const btn of $$(".modes button")) {
     btn.classList.toggle("active", btn.dataset.mode === state.mode);
     btn.disabled = state.estop;
@@ -299,6 +304,7 @@ function bindButtons() {
     post("/api/torque", { active: !off });
   });
   $("#btn-reconnect").addEventListener("click", () => post("/api/reconnect"));
+  $("#btn-restore").addEventListener("click", () => post("/api/restore"));
   $("#calib-on").addEventListener("change", (ev) => {
     $("#head-video").classList.toggle("picking", ev.currentTarget.checked);
   });

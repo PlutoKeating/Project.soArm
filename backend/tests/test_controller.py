@@ -1,5 +1,8 @@
 """用模拟臂和假相机逐拍驱动控制器，验证三种模式和安全逻辑。不需要任何硬件。"""
 
+import time
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -453,3 +456,53 @@ def test_both_arms_follow_their_own_hand_independently(rig):
     assert rig.at_home("left")
     assert abs(rig.ctl.arms["right"].pan_off) > 3
     assert not rig.ctl.snapshot()["arms"]["left"]["fused_selected"]
+
+
+def test_lend_arm_releases_it_without_dropping_torque_and_restore_takes_it_back(rig, monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    rig.ctl.set_mode("follow")
+    rig.run(6.0)
+    right = rig.arms["right"]
+    released = []
+    monkeypatch.setattr(right, "disconnect", lambda: (released.append(True), setattr(right, "connected", False)))
+    rig.ctl.lend_arm("right")
+    assert released and not right.connected
+    assert right.torque_enabled  # 力矩没掉
+    snap = rig.ctl.snapshot()
+    assert snap["arms"]["right"]["lent"] and not snap["arms"]["left"]["lent"]
+    # 借出期间：另一只臂照常跟随；“重新连接设备”不会把借出的臂抢回来
+    _show(rig.cams["wrist_left"], 0.2, 0.5)
+    rig.run(1.0)
+    assert abs(rig.ctl.arms["left"].pan_off) > 3
+    rig.ctl.connect_all()
+    assert not right.connected
+    # 恢复：接管并回到跟随
+    result = rig.ctl.restore_all()
+    assert result["restored"] == ["right"] and not result["failed"]
+    assert right.connected and not rig.ctl.arms["right"].lent
+    rig.cams["wrist_left"].hand = None
+    rig.run(8.0)
+    assert rig.at_home("right") and rig.ctl.mode == "follow"
+
+
+def test_restore_evicts_the_registered_lab_process(monkeypatch, tmp_path):
+    import subprocess
+    import sys
+
+    from soarm import lab
+
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    # 一个登记在案、收到 SIGTERM 会走清理流程的“开发程序”
+    code = (
+        "import time, sys; sys.path.insert(0, %r); from soarm import lab; lab.claim()\n"
+        "try:\n    print('ready', flush=True); time.sleep(60)\n"
+        "except KeyboardInterrupt:\n    lab.release(); print('cleaned', flush=True)\n"
+    ) % str(Path(lab.__file__).resolve().parents[1])
+    proc = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE, text=True)
+    assert proc.stdout.readline().strip() == "ready"
+    t0 = time.monotonic()
+    note = lab.evict()
+    assert "已退出" in note and time.monotonic() - t0 < 3.0
+    assert proc.wait(timeout=3) == 0 and proc.stdout.read().strip() == "cleaned"
+    assert not lab.pidfile().exists()
+    assert "没有" in lab.evict()  # 再调一次：没有可终止的

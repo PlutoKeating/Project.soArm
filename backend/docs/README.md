@@ -8,6 +8,7 @@ Python 包 `soarm`，位于 `backend/soarm/`。依赖由仓库根目录的 `pypr
 |---|---|
 | `uv run soarm-console [--mock] [--mode M] [--config PATH] [--host H] [--port P]` | 启动控制台（Web 服务 + 控制循环 + 相机线程）；`--mode` 指定启动后自动进入的模式 |
 | `scripts/production.sh start\|stop\|status\|logs` | 以 systemd 用户服务常驻运行，异常退出自动拉起 |
+| `scripts/lab.sh status\|idle\|lend\|restore\|deploy` | 展示与试验开发之间的快速切换 |
 | `uv run soarm-tools scan` | 扫描串口上的 STS3215 舵机 |
 | `uv run soarm-tools cameras` | 列出相机并保存快照 |
 | `uv run soarm-tools watch <arm> [--once]` | 只读：显示该臂的行程限位并实时显示关节角度 |
@@ -23,6 +24,7 @@ soarm/
   kinematics.py           URDF 正解 + 4 自由度逆解
   calib.py                触点法外参标定
   tools.py                上电准备工具
+  lab.py                  生产与开发试验之间的交接（进程登记与让路）
   assets/so101_new_calib.urdf   仅含运动学的 SO-101 URDF
   control/controller.py   模式状态机、三种模式、安全处理
   perception/cameras.py   相机采集线程、主手锁定、标注
