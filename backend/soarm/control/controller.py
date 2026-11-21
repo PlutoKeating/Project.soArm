@@ -775,19 +775,30 @@ class Controller:
         best = min(rt.hist, key=lambda h: abs(h[0] - t))
         return np.array([best[1], best[2]])
 
+    def _controller_for(self, rt: ArmRuntime) -> str:
+        return rt.cfg.follow_controller or self.cfg.follow.controller
+
     def _metrics(self, rt: ArmRuntime) -> FollowMetrics:
-        key = (rt.arm.name, self.cfg.follow.controller)
+        key = (rt.arm.name, self._controller_for(rt))
         if key not in self.follow_metrics:
             self.follow_metrics[key] = FollowMetrics()
         return self.follow_metrics[key]
 
-    def set_follow_controller(self, name: str) -> None:
-        """运行中切换跟随控制器，用于在同一套硬件上对比。"""
+    def set_follow_controller(self, name: str, arm: str | None = None) -> None:
+        """运行中切换跟随控制器。给出 arm 时只改这只臂（两只臂各跑一套，便于并排对比）；
+        不给时改全局默认，并清掉各臂的单独设置。"""
         if name not in ("smooth", "legacy"):
             raise ValueError(f"未知的跟随控制器 {name}")
         with self._lock:
-            self.cfg.follow.controller = name
-            for rt in self.arms.values():
+            if arm is None:
+                self.cfg.follow.controller = name
+                targets = list(self.arms.values())
+                for rt in targets:
+                    rt.cfg.follow_controller = ""
+            else:
+                targets = [self.arms[arm]]
+                targets[0].cfg.follow_controller = name
+            for rt in targets:
                 rt.aim_filter = None
                 rt.off_vel = np.zeros(2)
 
@@ -993,7 +1004,7 @@ class Controller:
             hand = None
         lo, hi = self._offset_limits(rt)
         current = np.array([rt.pan_off, rt.tilt_off])
-        smooth = f.controller == "smooth"
+        smooth = self._controller_for(rt) == "smooth"
 
         # 观测来源：优先用自己的腕部相机；它看不到时，用深度相机给的引导
         observed, observed_t, guided = None, 0.0, False
@@ -1293,6 +1304,7 @@ class Controller:
                 ext = self.calibration.arms.get(name)
                 arms[name] = {
                     "connected": rt.arm.connected,
+                    "follow_controller": self._controller_for(rt),
                     "enabled": rt.enabled,
                     "lent": rt.lent,
                     "error": rt.arm.error,

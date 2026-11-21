@@ -70,6 +70,8 @@ def test_follow_controller_can_be_switched_at_runtime_and_metrics_are_kept_per_c
     from test_controller import Rig, _show
 
     rig = Rig(tmp_path)
+    assert rig.ctl.snapshot()["follow_controller"] == "legacy"  # 默认仍是旧控制
+    rig.ctl.set_follow_controller("smooth")
     rig.ctl.set_mode("follow")
     rig.run(6.0)
     assert rig.ctl.snapshot()["follow_controller"] == "smooth"
@@ -85,3 +87,24 @@ def test_follow_controller_can_be_switched_at_runtime_and_metrics_are_kept_per_c
     assert rig.ctl.snapshot()["follow_stats"]["left:legacy"]["lost_events"] == 1
     with pytest.raises(ValueError):
         rig.ctl.set_follow_controller("turbo")
+
+
+def test_each_arm_can_run_its_own_controller_side_by_side(tmp_path):
+    from test_controller import Rig, _show
+
+    rig = Rig(tmp_path)
+    rig.ctl.set_follow_controller("smooth", arm="right")
+    rig.ctl.set_mode("follow")
+    rig.run(6.0)
+    snap = rig.ctl.snapshot()
+    assert snap["arms"]["left"]["follow_controller"] == "legacy"
+    assert snap["arms"]["right"]["follow_controller"] == "smooth"
+    _show(rig.cams["wrist_left"], 0.7, 0.5)
+    _show(rig.cams["wrist_right"], 0.7, 0.5)
+    rig.run(2.0)
+    stats = rig.ctl.snapshot()["follow_stats"]
+    assert set(stats) == {"left:legacy", "right:smooth"}  # 度量按“臂 × 控制器”分开累计
+    assert abs(rig.ctl.arms["left"].pan_off) > 3 and abs(rig.ctl.arms["right"].pan_off) > 3
+    # 改全局默认会清掉各臂的单独设置
+    rig.ctl.set_follow_controller("legacy")
+    assert rig.ctl.snapshot()["arms"]["right"]["follow_controller"] == "legacy"

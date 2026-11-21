@@ -172,6 +172,7 @@ class RemoteHandCamera:
         self._remote = self._remote or name
         self._hand: Hand | None = None
         self._hand_time = 0.0
+        self._last_key = None
         self._count = 0
         self.intrinsics = None
         self.error: str | None = "未启动"
@@ -206,9 +207,16 @@ class RemoteHandCamera:
                 self._count = cam.get("hands", 0)
                 self.error = cam.get("error")
                 if p:
-                    # 对方的状态没有时间戳；按一次检测加一次轮询的典型延迟往前推
-                    self._hand = Hand(p["cx"], p["cy"], p["size"], p["score"], np.zeros((21, 2), np.float32), None, now - 0.05)
+                    # 对方的状态没有时间戳；按一次检测加一次轮询的典型延迟往前推。
+                    # 只有检测结果真的变了才算新的一帧：轮询比对方的检测更勤时会读到同一个结果，
+                    # 若每次都打上新的时间戳，控制器会看到“位置没变、时间在走”，估出的手速忽大忽小
+                    key = (p["cx"], p["cy"], p["size"])
+                    if key != self._last_key:
+                        self._last_key = key
+                        self._hand = Hand(p["cx"], p["cy"], p["size"], p["score"], np.zeros((21, 2), np.float32), None, now - 0.05)
                     self._hand_time = now
+                else:
+                    self._last_key = None
             except Exception as e:
                 self.error = f"读不到 {self._url}: {e}"
             self._stop.wait(0.03)

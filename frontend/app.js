@@ -123,7 +123,8 @@ function renderArm(panel, arm, cam) {
     statusEl.classList.add("bad");
   } else {
     const calib = arm.calibrated ? `已标定 ${arm.calib_rms_mm} mm` : "未标定外参";
-    statusEl.textContent = `${arm.status || "已连接"} · ${calib}`;
+    const ctrl = arm.follow_controller === "smooth" ? "新控制" : "旧控制";
+    statusEl.textContent = `${arm.status || "已连接"} · ${ctrl} · ${calib}`;
     statusEl.classList.add("ok");
   }
   panel.classList.toggle("selected", Boolean(arm.fused_selected));

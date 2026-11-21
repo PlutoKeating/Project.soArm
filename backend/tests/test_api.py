@@ -144,6 +144,15 @@ def test_remote_hand_camera_mirrors_another_console(tmp_path):
         hand = remote.primary_hand()
         assert hand is not None and (hand.cx, hand.cy) == (0.7, 0.3)
         assert (remote.cfg.width, remote.cfg.height) == (1280, 720)
+        # 对方的检测结果没变时，这边不能把它当成新的一帧（时间戳保持不变）
+        stamps = set()
+        for _ in range(8):
+            stamps.add(remote.primary_hand().t)
+            time.sleep(0.05)
+        assert len(stamps) == 1
+        fake.hand = Hand(0.72, 0.3, 0.4, 0.9, np.zeros((21, 2), np.float32), None, time.monotonic())
+        time.sleep(0.3)
+        assert remote.primary_hand().t not in stamps and remote.primary_hand().cx == 0.72
         fake.hand = None
         time.sleep(0.7)
         assert remote.primary_hand() is None  # 对方看不到了，这边也随之过期

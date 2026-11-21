@@ -35,6 +35,9 @@ class ArmConfig:
     # 额外的关节限位（度），与 URDF 限位、舵机行程限位取交集。
     # 用于避让两臂之间的相机中柱：肩部旋转正方向是向右转
     joint_limits: dict[str, tuple[float, float]] = field(default_factory=dict)
+    # 这只臂单独使用的跟随控制器（smooth / legacy）；留空则用 follow.controller。
+    # 用于两只臂各跑一套、在相同条件下并排对比
+    follow_controller: str = ""
     # 覆盖全局 home 里的个别关节。主要用于 wrist_roll：要让腕部相机画面是正的
     home: dict[str, float] = field(default_factory=dict)
 
@@ -102,8 +105,10 @@ class KeyboardConfig:
 class FollowConfig:
     """第 2 步：腕部相机只对准、不调距离。"""
 
-    # 跟随控制器。smooth：自适应滤波 + 加速度连续的二阶跟踪；legacy：固定权重混合 + 比例限速
-    controller: str = "smooth"
+    # 跟随控制器。smooth：自适应滤波 + 加速度连续的二阶跟踪；legacy：固定权重混合 + 比例限速。
+    # smooth 在模拟里更紧也更稳，但尚未在真机上得到可靠的对比数据，所以默认仍是 legacy；
+    # 可以按臂单独指定（arms.<名字>.follow_controller）或在运行中切换
+    controller: str = "legacy"
     # ---- smooth 控制器的参数 ----
     filter_min_cutoff: float = 1.5  # 手几乎不动时的滤波截止频率（Hz）。越小越稳，但慢动作的滞后越大
     filter_beta: float = 0.05  # 截止频率随手的角速度升高的速率（Hz 每 度/秒）。越大快动作越跟手
