@@ -358,3 +358,44 @@ def test_body_calibration_refuses_when_arm_is_not_visible():
     junk = [BodyObservation(o.skeleton, rng.uniform(-1, 1, (150, 3)) + [0, 0, 2.5]) for o in _body_observations(T)]
     with pytest.raises(ValueError):
         solve_from_body(junk, pitch_down_deg=35.0)
+
+
+def test_body_calibration_rejects_an_implausible_camera_pose():
+    """对着不是手臂的点云（比如路过的人）凑出来的解，位置朝向离谱，要被拦下。"""
+    T_wrong = np.eye(4)
+    T_wrong[:3, :3] = np.array([[0.35, 0.9, 0.2], [-0.92, 0.38, -0.1], [0.16, 0.1, 0.98]])
+    T_wrong[:3, :3] = np.linalg.qr(T_wrong[:3, :3])[0]
+    T_wrong[:3, 3] = [-0.4, 0.39, 0.02]
+    with pytest.raises(ValueError, match="不合理|不可信"):
+        solve_from_body(_body_observations(T_wrong), pitch_down_deg=39.0)
+
+
+def test_verify_body_confirms_a_correct_extrinsic_and_rejects_a_shifted_one():
+    from soarm.calib import verify_body
+
+    T = _true_extrinsic()
+    T_inv = np.linalg.inv(T)
+    fx = fy = 600.0
+    cx, cy, w, h = 320.0, 240.0, 640, 480
+    rng = np.random.default_rng(0)
+    skeletons, depths = [], []
+    for _ in range(8):
+        joints = dict(HOME)
+        joints.update({"shoulder_pan": rng.uniform(-20, 20), "shoulder_lift": rng.uniform(-30, 0),
+                       "elbow_flex": rng.uniform(-10, 20), "wrist_flex": rng.uniform(-15, 5)})
+        skel = KIN.skeleton(joints)
+        depth = np.full((h, w), 1.4, np.float32)  # 背景是远处的地面
+        for a, b in zip(skel[2:-1], skel[3:]):  # 把前臂和夹爪“画”进深度图
+            for f in np.linspace(0, 1, 200):
+                p = T_inv[:3, :3] @ (a + f * (b - a)) + T_inv[:3, 3]
+                u, v = int(fx * p[0] / p[2] + cx), int(fy * p[1] / p[2] + cy)
+                if 6 <= u < w - 6 and 6 <= v < h - 6:
+                    depth[v - 6 : v + 7, u - 6 : u + 7] = p[2] - 0.022
+        skeletons.append(skel)
+        depths.append(depth)
+    inside, confirmed = verify_body(T, skeletons, depths, (fx, fy, cx, cy))
+    assert inside > 0.3 and confirmed > 0.9
+    shifted = T.copy()
+    shifted[:3, 3] += [0.0, 0.12, 0.0]
+    _, confirmed_bad = verify_body(shifted, skeletons, depths, (fx, fy, cx, cy))
+    assert confirmed_bad < 0.3

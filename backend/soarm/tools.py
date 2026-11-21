@@ -355,10 +355,11 @@ def cmd_solve_calib(args: argparse.Namespace) -> int:
     return 0 if solved else 1
 
 
-# 手眼标定时让手臂抬高前伸进入深度相机视野的姿态：(肩部俯仰, 肘部, 腕部俯仰)
-_BODY_SHAPES = [(-45, 20, 15), (-30, 15, 5), (-60, 25, 20), (-40, 5, 20), (-50, 35, -15), (-70, 40, 0)]
-# 肩部旋转相对“正前方”的偏角，正值表示朝外侧（远离中柱）
-_BODY_PANS_OUTWARD = [-20, 5, 30, 50]
+# 手眼标定时让手臂往前上方伸到深度相机下面的姿态：(肩部俯仰, 肘部, 腕部俯仰)。
+# 实测相机悬在夹爪初始位的上空偏前，手臂要伸到接近最远才进得了画面
+_BODY_SHAPES = [(-20, 10, 0), (-10, 0, -10), (-25, 25, -15), (0, -10, -10), (-30, 15, 5), (-5, 10, -15)]
+# 肩部旋转相对“正前方”的偏角，正值表示朝外侧（远离中柱）。相机在两臂中间，所以偏向内侧
+_BODY_PANS_OUTWARD = [-25, -10, 5, 20]
 
 
 def cmd_body_calib(args: argparse.Namespace) -> int:
@@ -373,7 +374,7 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
     import numpy as np
 
     from . import lab
-    from .calib import ArmExtrinsic, BodyObservation, Calibration, solve_from_body
+    from .calib import ArmExtrinsic, BodyObservation, Calibration, solve_from_body, verify_body
     from .control.controller import Controller
     from .kinematics import ARM_JOINTS
     from .perception.cameras import CameraWorker, deproject
@@ -431,7 +432,7 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
                 poses.append({"shoulder_pan": outward * pan, "shoulder_lift": lift, "elbow_flex": elbow,
                               "wrist_flex": wf, "wrist_roll": rt.home["wrist_roll"], "gripper": 0.0})
         poses = poses[: args.poses]
-        observations, records = [], []
+        observations, records, depths = [], [], []
         print(f"{name} 臂将依次摆 {len(poses)} 个姿态，每个约 3-5 秒。Ctrl+C 或被要求让路时立即停止。")
         for i, pose in enumerate(poses):
             ctl.goto_pose(name, pose, "calib")
@@ -444,8 +445,8 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
             time.sleep(0.9)
             color, depth = depth_median()
             joints = {j: rt.pos[j] for j in ARM_JOINTS}
-            # 前景：比背景近的点。只取 1 米以内，排除远处走动的人
-            fg = (depth > 0.12) & (depth < 1.0) & ((background < 0.05) | (depth < background - 0.04))
+            # 前景：比背景近的点。只取 0.7 米以内：手臂离相机 0.2-0.6 米，再远的是路过的人
+            fg = (depth > 0.12) & (depth < 0.7) & ((background < 0.05) | (depth < background - 0.04))
             fg = cv2.erode(fg.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
             vs, us = np.nonzero(fg)
             if len(vs) > 600:
@@ -458,6 +459,7 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
             cv2.imwrite(str(out_dir / f"pose_{i:02d}.jpg"), color)
             np.save(out_dir / f"pose_{i:02d}_depth.npy", depth.astype(np.float32))
             records.append({"joints": joints, "skeleton": skeleton.tolist(), "points": pts.tolist()})
+            depths.append(depth)
             if len(pts) >= 40:
                 observations.append(BodyObservation(skeleton, pts))
         (out_dir / "observations.json").write_text(json.dumps({
@@ -482,7 +484,14 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
             for p in px:
                 cv2.circle(img, p, 4, (0, 0, 255), -1)
             cv2.imwrite(str(out_dir / f"check_{i:02d}.jpg"), img)
-        if not args.dry_run:
+        inside, confirmed = verify_body(
+            T, [np.array(r["skeleton"]) for r in records], depths, (intr.fx, intr.fy, intr.cx, intr.cy)
+        )
+        print(f"反向验证：手臂模型有 {inside:.0%} 落在画面内，其中 {confirmed:.0%} 被深度图证实")
+        trusted = inside >= 0.3 and confirmed >= 0.6
+        if not trusted:
+            print("验证未通过：这个外参不可信，不保存。请看 check_*.jpg 里黄色骨架是否压在手臂上。")
+        if trusted and not args.dry_run:
             path = cfg.path(cfg.calibration_dir) / "extrinsics.yaml"
             calibration = Calibration.load(path)
             calibration.arms[name] = ArmExtrinsic(T, rms, used)
@@ -490,7 +499,11 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
             calibration.save(path)
             print(f"已保存到 {path}")
         finished = True
-        return 0
+        return 0 if trusted else 1
+    except ValueError as e:
+        print(f"无法求解：{e}")
+        finished = True
+        return 1
     except KeyboardInterrupt:
         print("\n被要求让路：立即松开串口，舵机力矩保持。")
         return 130

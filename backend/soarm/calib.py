@@ -235,9 +235,50 @@ def solve_from_body(
     inliers = np.abs(dist) < cap
     if inliers.mean() < 0.5:
         raise ValueError(f"只有 {inliers.mean():.0%} 的点能贴到手臂模型上，标定不可信")
+    # 合理性：相机装在手臂上方、朝前下方看。对着一堆无关的点（比如路过的人）也可能凑出
+    # 一个残差不大的解，但位置朝向会很离谱，在这里拦下
+    if not 0.15 < t[2] < 1.0 or R[0, 2] < 0.2 or R[2, 2] > -0.1:
+        raise ValueError(
+            f"求出的相机位置 ({t[0]:.2f}, {t[1]:.2f}, {t[2]:.2f}) 或朝向 {np.round(R[:, 2], 2).tolist()} 不合理："
+            "相机应在手臂上方、朝前下方。多半是手臂没进入相机视野，点云里是别的东西"
+        )
     T = np.eye(4)
     T[:3, :3], T[:3, 3] = R, t
     return T, float(np.sqrt((dist[inliers] ** 2).mean())), int(inliers.sum())
+
+
+def verify_body(
+    T: np.ndarray,
+    skeletons: list[np.ndarray],
+    depths: list[np.ndarray],
+    intrinsics: tuple[float, float, float, float],
+    link_radius: float = 0.022,
+) -> tuple[float, float]:
+    """反向验证外参：把每个姿态的手臂模型投影到深度图上，看深度图是否真的在那里看到了东西。
+
+    返回 (模型点落在画面内的比例, 其中被深度证实的比例)。求解只保证“看到的点贴着模型”，
+    这里检查“模型在的地方确实有点”，两头都成立才可信。
+    """
+    fx, fy, cx, cy = intrinsics
+    T_inv = np.linalg.inv(T)
+    total = inside = confirmed = 0
+    for skel, depth in zip(skeletons, depths):
+        h, w = depth.shape
+        for a, b in zip(skel[2:-1], skel[3:]):  # 前臂与夹爪：会进入视野的部分
+            for f in np.linspace(0.1, 0.9, 12):
+                p = T_inv[:3, :3] @ (a + f * (b - a)) + T_inv[:3, 3]
+                total += 1
+                if p[2] <= 0.05:
+                    continue
+                u, v = int(round(fx * p[0] / p[2] + cx)), int(round(fy * p[1] / p[2] + cy))
+                if not (2 <= u < w - 2 and 2 <= v < h - 2):
+                    continue
+                inside += 1
+                patch = depth[v - 2 : v + 3, u - 2 : u + 3]
+                valid = patch[patch > 0.05]
+                if valid.size and abs(float(np.median(valid)) - (p[2] - link_radius)) < 0.05:
+                    confirmed += 1
+    return inside / max(total, 1), confirmed / max(inside, 1)
 
 
 @dataclass
