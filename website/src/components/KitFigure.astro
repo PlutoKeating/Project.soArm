@@ -1,0 +1,48 @@
+---
+// 套机俯视示意图。位置关系取自一号套机的外参：两臂基座相距约 29 cm，深度相机在两臂之间、
+// 基座前方约 17 cm、高约 40 cm 处。按 1 m = 360 px 绘制。
+---
+<figure>
+  <svg class="kit" viewBox="0 0 720 430" role="img" aria-labelledby="kit-t kit-d">
+    <title id="kit-t">套机俯视示意图</title>
+    <desc id="kit-d">两只机械臂左右并排，深度相机在两臂之间靠前的立柱上，朝观众方向看；每只臂的夹爪上各有一个腕部相机。</desc>
+    <defs>
+      <style>
+        .kit .kf{font:500 15px "Overpass Variable","Noto Sans SC Variable",sans-serif;fill:#121a30}
+        .kit .ks{font:400 13px "Overpass Variable","Noto Sans SC Variable",sans-serif;fill:#465070}
+        .kit .arm{fill:none;stroke:#121a30;stroke-width:9;stroke-linecap:round;stroke-linejoin:round}
+        .kit .lead{fill:none;stroke:#465070;stroke-width:1}
+      </style>
+    </defs>
+    <!-- 深度相机视野：水平约 69° -->
+    <path d="M360 268 L162 20 L558 20 Z" fill="#2c6be0" opacity="0.13" />
+    <path d="M360 268 L162 20 M360 268 L558 20" stroke="#2c6be0" stroke-width="1.5" fill="none" stroke-dasharray="6 5" />
+    <!-- 腕部相机视野：水平约 90° -->
+    <path d="M308 236 L238 166 L378 166 Z" fill="#e03a2f" opacity="0.18" />
+    <path d="M412 236 L342 166 L482 166 Z" fill="#e03a2f" opacity="0.18" />
+    <!-- 两只臂：基座、连杆、夹爪 -->
+    <path class="arm" d="M308 330 L308 240" /><path class="arm" d="M412 330 L412 240" />
+    <rect x="286" y="318" width="44" height="44" rx="6" fill="#121a30" /><rect x="390" y="318" width="44" height="44" rx="6" fill="#121a30" />
+    <circle cx="308" cy="236" r="9" fill="#e03a2f" stroke="#f4f6fa" stroke-width="3" /><circle cx="412" cy="236" r="9" fill="#e03a2f" stroke="#f4f6fa" stroke-width="3" />
+    <!-- 立柱与深度相机 -->
+    <rect x="336" y="258" width="48" height="20" rx="5" fill="#2c6be0" stroke="#f4f6fa" stroke-width="3" />
+    <!-- 观众 -->
+    <path d="M110 20 H610" stroke="#121a30" stroke-width="2" stroke-dasharray="2 7" />
+    <text class="kf" x="360" y="14" text-anchor="middle" style="font-weight:700">观众伸手的区域</text>
+    <g class="lbl">
+    <!-- 标注 -->
+    <path class="lead" d="M384 268 H560" /><text class="kf" x="566" y="266">深度相机（云台上）</text><text class="ks" x="566" y="286">视野大，给出手的 3D 位置</text>
+    <path class="lead" d="M421 236 H560" /><text class="kf" x="566" y="226">腕部相机 ×2</text><text class="ks" x="566" y="246">装在夹爪上方，负责对准</text>
+    <path class="lead" d="M286 340 H160" /><text class="kf" x="154" y="338" text-anchor="end">左臂</text><text class="ks" x="154" y="358" text-anchor="end">按机器人自己的朝向</text>
+    <path class="lead" d="M434 340 H560" /><text class="kf" x="566" y="345">右臂</text>
+    <path d="M308 384 H412" stroke="#465070" stroke-width="1" /><path d="M308 378 V390 M412 378 V390" stroke="#465070" stroke-width="1" />
+    <text class="ks" x="360" y="406" text-anchor="middle">约 29 cm</text>
+    </g>
+  </svg>
+  <ul class="fig-key">
+    <li><i style="background:#2c6be0"></i>深度相机（云台上）：视野大，给出手的 3D 位置</li>
+    <li><i style="background:#e03a2f"></i>腕部相机 ×2：装在夹爪上方，负责对准</li>
+    <li><i style="background:#121a30"></i>左臂在图左、右臂在图右，按机器人自己的朝向；两臂相距约 29 cm</li>
+  </ul>
+  <figcaption>俯视示意图，位置关系取自一号套机的标定结果。蓝色是深度相机的视野，红色是两个腕部相机的视野。</figcaption>
+</figure>

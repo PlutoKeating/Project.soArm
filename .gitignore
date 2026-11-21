@@ -15,5 +15,12 @@ calibration/
 third_party/
 models/
 
+# 设计流程的中间产物（草图、截图、问答记录）；设计约定 .impeccable/surfaces/ 入库
+.impeccable/mocks/
+.impeccable/review/
+.impeccable/questions/
+.impeccable/build/
+.impeccable/payload.json
+
 # 环境变量
 .env

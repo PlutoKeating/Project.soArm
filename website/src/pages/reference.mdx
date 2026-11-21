@@ -1,0 +1,104 @@
+---
+layout: ../layouts/Doc.astro
+title: 速查
+description: 按键、命令和配置放在一页。
+steps: false
+---
+
+## 来人了
+
+```bash
+scripts/lab.sh restore
+```
+
+几秒内恢复全量展示，随时可以放心执行。
+
+## 模式与按键
+
+| 按键 | 作用 |
+|---|---|
+| <kbd>空格</kbd> | 急停 |
+| <kbd>0</kbd> | 待机：保持当前位置 |
+| <kbd>1</kbd> | 键盘控制：按住才动，松开即停 |
+| <kbd>2</kbd> | 腕部跟随：腕部相机看到手就转过去对准 |
+| <kbd>3</kbd> | 深度引导：深度相机找到手，腕部相机接管 |
+| <kbd>G</kbd> | 回初始位 |
+
+键盘控制模式下的键位：
+
+| 动作 | 左臂 | 右臂 |
+|---|---|---|
+| 前 / 后 | <kbd>W</kbd> <kbd>S</kbd> | <kbd>I</kbd> <kbd>K</kbd> |
+| 左 / 右 | <kbd>A</kbd> <kbd>D</kbd> | <kbd>J</kbd> <kbd>L</kbd> |
+| 上 / 下 | <kbd>R</kbd> <kbd>F</kbd> | <kbd>Y</kbd> <kbd>H</kbd> |
+| 夹爪俯仰 | <kbd>Q</kbd> <kbd>E</kbd> | <kbd>U</kbd> <kbd>O</kbd> |
+| 腕部旋转 | <kbd>Z</kbd> <kbd>X</kbd> | <kbd>N</kbd> <kbd>M</kbd> |
+| 夹爪开合 | <kbd>C</kbd> <kbd>V</kbd> | <kbd>,</kbd> <kbd>.</kbd> |
+
+## 现场命令
+
+| 命令 | 作用 |
+|---|---|
+| `scripts/production.sh start` | 开摊：常驻运行 |
+| `scripts/production.sh stop` | 收摊：先收手再释放力矩 |
+| `scripts/production.sh status` · `logs` | 看状态、看日志 |
+| `scripts/lab.sh restore` | 来人了：恢复全量展示 |
+| `scripts/lab.sh lend <left\|right>` | 没人时借出一只臂 |
+| `scripts/lab.sh deploy` | 没人时重启服务，加载 main 上的新代码 |
+| `scripts/lab.sh status` | 一行显示当前状态 |
+| `uv run soarm-tools watchdog` | 无人值守看门狗 |
+
+## 准备与标定命令
+
+| 命令 | 作用 | 会动吗 |
+|---|---|---|
+| `uv run soarm-console [--mock] [--mode M]` | 启动控制台 | 进入模式后会 |
+| `uv run soarm-tools scan` | 扫描串口上的舵机 | 不会 |
+| `uv run soarm-tools cameras` | 列出相机并保存快照 | 不会 |
+| `uv run soarm-tools watch <臂>` | 显示行程限位和实时关节角 | 不会 |
+| `uv run soarm-tools calibrate <臂>` | 重做舵机校准 | 用手掰 |
+| `uv run soarm-tools head-watch` | 释放云台力矩并显示刻度 | 云台会松 |
+| `uv run soarm-tools head-set --port P [--pan N] [--tilt N]` | 云台转到指定刻度并保持 | 云台会转 |
+| `uv run soarm-tools body-calib <臂>` | 用机械臂自身做手眼标定 | 会 |
+| `uv run soarm-tools tilt-calib` | 把外参换算到当前云台角度 | 不会 |
+| `uv run pytest` | 不依赖硬件的测试 | 不会 |
+
+## 配置分三层
+
+| 跟着谁走 | 内容 | 放在哪 |
+|---|---|---|
+| 这类套机 | 限速、跟随参数、中柱避让、初始位 | `backend/soarm/config.py` 里的默认值 |
+| 这一套套机 | 控制板串口、深度相机序列号、云台刻度、外参 | `config/kits/<套机>/` |
+| 这台电脑 | 两个腕部相机的 USB 口路径 | `config/config.yaml`，不入库 |
+
+`config/config.yaml` 里只写需要覆盖的项，写了不存在的配置项会直接报错。
+
+## 常调的参数
+
+| 配置项 | 默认 | 作用 |
+|---|---|---|
+| `start_mode` | `idle` | 启动后自动进入的模式。展示用 `fused` 或 `follow` |
+| `safety.max_joint_speed_deg_s` | 180 | 关节限速上限（度/秒） |
+| `follow.max_speed_deg_s` | 150 | 跟随的最大转速（度/秒） |
+| `follow.smooth_time` | 0.08 | 越小追得越紧，过小会显得生硬 |
+| `follow.filter_min_cutoff` | 1.5 | 越小手不动时越稳，慢动作的滞后越大 |
+| `follow.lost_timeout_s` | 1.5 | 看不到手多久后回初始位（秒） |
+| `follow.single_tracker` | `false` | 设为 `true` 则两只臂同一时刻至多一只在跟 |
+| `fused.depth_range` | 0.2–1.6 | 认可的手部距离范围（米） |
+| `arms.<臂>.joint_limits.shoulder_pan` | ±30 朝内 | 中柱避让的限位（度） |
+
+## 一号套机
+
+| 项目 | 值 |
+|---|---|
+| 机械臂 | 每只 6 个 STS3215，ID 1–6 |
+| 云台 | ID 7 左右，ID 8 俯仰 |
+| 云台工作刻度 | 左右 2047，俯仰 1705（低头约 25°） |
+| 云台标定刻度 | 俯仰 2087（低头约 59°） |
+| 刻度与角度 | 11.4 刻度 / 度，刻度减小是抬头 |
+| 深度相机 | Intel RealSense D435 |
+| 腕部相机 | OV9732 720P UVC 模组，1280×720 |
+
+## 更深的文档
+
+仓库 `docs/` 目录下：`ARCHITECTURE.md` 讲每个设计决定的理由，`API.md` 是 HTTP 与 WebSocket 接口，`devices/VERIFIED.md` 是展会当天的全部实测记录。

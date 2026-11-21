@@ -19,6 +19,8 @@ Python 包 `soarm`，位于 `backend/soarm/`。依赖由仓库根目录的 `pypr
 | `uv run soarm-tools solve-calib [样本文件]` | 用旁路采集的样本离线求解外参 |
 | `uv run soarm-tools watchdog [--dry-run]` | 无人值守看门狗：异常时收到休息位、释放力矩并急停 |
 | `uv run soarm-tools head-watch` | 释放云台力矩并显示原始刻度 |
+| `uv run soarm-tools head-set --port P [--pan N] [--tilt N]` | 把云台慢慢转到指定刻度并保持力矩；不给目标时只读取 |
+| `uv run soarm-tools tilt-calib [--pitch-down 度]` | 云台抬到工作角度后，把外参换算到当前姿态 |
 
 ## 文件
 
@@ -27,7 +29,7 @@ soarm/
   app.py                  FastAPI 应用与命令行入口
   config.py               配置 dataclass 与 YAML 加载
   kinematics.py           URDF 正解 + 4 自由度逆解
-  calib.py                触点法外参标定
+  calib.py                外参求解、安装偏角估计与存取
   tools.py                上电准备工具
   lab.py                  生产与开发试验之间的交接（进程登记与让路）
   watchdog.py             无人值守看门狗的异常判定与安全停下动作
@@ -62,6 +64,6 @@ uv run pytest
 
 ## 配置
 
-见 `config/config.example.yaml` 与 `soarm/config.py`。外参标定结果写入 `calibration/extrinsics.yaml`。机械臂的校准保存在舵机里，不使用校准文件。
+见 `config/config.example.yaml`、`config/kits/`（套机档案）与 `soarm/config.py`。外参标定结果写入 `calibration/extrinsics.yaml`。机械臂的校准保存在舵机里，不使用校准文件。
 
 架构说明见 [ARCHITECTURE.md](ARCHITECTURE.md)。

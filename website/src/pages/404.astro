@@ -1,0 +1,7 @@
+---
+import Doc from "../layouts/Doc.astro";
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+---
+<Doc title="这一站不存在" description="线路上没有这个地址。可能是链接写错了，或者页面改过名字。" steps={false}>
+  <p>从左侧的线路图选一站，或者<a href={`${base}/`}>回到总览</a>。</p>
+</Doc>

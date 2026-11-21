@@ -1,0 +1,94 @@
+---
+layout: ../layouts/Doc.astro
+title: 新套机首次上电
+description: 一套同型号的全新套机没有档案可抄，要自己认一遍：哪块控制板是哪只臂、校准是否可用、云台的零点在哪。每套设备只需做一次。
+---
+import Notice from "../components/Notice.astro";
+
+## 从模板开始
+
+```bash
+cp config/config.example.yaml config/config.yaml
+```
+
+后面每一步的结果都填进这个文件。
+
+## 分辨三块控制板
+
+```bash
+uv run soarm-tools scan
+```
+
+有 6 个舵机（ID 1–6）的两个串口是机械臂，有 2 个舵机的是云台。把路径填进 `arms.left.port`、`arms.right.port`。
+
+分不清左右时，先随便填，然后：
+
+```bash
+uv run soarm-tools watch left
+```
+
+用手动一下你认为的左臂。读数在变就对了，不变就把两个 `port` 对调。这条命令只读，不会上力矩。
+
+## 核对机械臂的校准
+
+控制台直接用舵机里保存的校准，不需要校准文件。`scan` 输出里各关节的“限位”不是 `[0, 4095]`（腕部旋转除外），就说明校准过。
+
+再用 `soarm-tools watch left` 核对零位。力矩关着时用手摆动手臂：
+
+| 姿态 | 读数应该是 |
+|---|---|
+| 收拢停放 | 肩部俯仰约 −100°，肘部约 90° |
+| 水平向前伸直 | 前 5 个关节都接近 0° |
+
+偏差超过 10° 才需要重新校准：
+
+```bash
+uv run soarm-tools calibrate left
+```
+
+它会让你用手把每个关节掰过完整行程，结果写进舵机。
+
+## 给云台定零点
+
+云台的两个舵机出厂时没有校准，停放位置可能紧贴编码器的回绕点，直接用会在转过回绕点时绕一整圈。
+
+1. 把云台串口和两个舵机的 ID 填进 `head.port`、`head.pan.id`、`head.tilt.id`。
+2. 运行 `uv run soarm-tools head-watch`，它会释放云台力矩并显示刻度。用手让相机点头，读数在变的那个就是俯仰。
+3. 用手把相机摆到朝正前方、略微低头的姿态并扶住，把这个姿态设成刻度中点（LeRobot 总线的 `set_half_turn_homings`），再上力矩。
+
+<Notice kind="unverified" title="第 3 步没有封装成命令">
+一号套机当时是直接调用 LeRobot 的总线接口做的，仓库里没有对应的命令。做完后 `scan` 里云台两个舵机的位置应该都在 2047 附近。
+</Notice>
+
+之后用 `head-set` 调俯仰，刻度每减小 11.4，相机抬头 1°。找出并记下两个刻度：
+
+| 刻度 | 用途 | 一号套机的值 |
+|---|---|---|
+| 工作刻度 | 展示时用。画面覆盖两臂前方观众伸手的区域，不要朝着地面 | 1705（低头约 25°） |
+| 标定刻度 | 做手眼标定时用。低头到能看见手臂往前伸出 | 2087（低头约 59°） |
+
+定好之后把 `head.port` 改回空字符串：控制台不需要接管云台。
+
+## 相机
+
+```bash
+uv run soarm-tools cameras
+```
+
+把两条带 `usbv2` 的路径填进 `cameras.wrist_left.device` 和 `cameras.wrist_right.device`，把 RealSense 的序列号填进 `cameras.head.device`。
+
+## 先不用深度相机跑起来
+
+把 `start_mode` 设为 `follow`，去[首次启动](../first-run/)走到“腕部跟随”那一步，确认两只臂的方向和中柱避让都对。然后回来继续下一站的[外参标定](../calibration/)。
+
+## 存成套机档案
+
+全部跑通后，把结果存下来，下一个人就能走主线：
+
+```bash
+mkdir -p config/kits/kit-02
+cp config/config.yaml config/kits/kit-02/config.yaml
+cp calibration/extrinsics.yaml config/kits/kit-02/
+```
+
+把 `config/kits/kit-02/config.yaml` 里两个腕部相机的 `device` 清空（它们跟着电脑走），再提交。

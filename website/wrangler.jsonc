@@ -1,0 +1,9 @@
+{
+  // 只托管静态文件，没有 Worker 脚本。name 必须与 Cloudflare 控制台里的 Worker 名称一致，否则构建会失败
+  "name": "soarm-docs",
+  "compatibility_date": "2026-11-21",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "404-page"
+  }
+}

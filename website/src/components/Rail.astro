@@ -1,0 +1,71 @@
+---
+// 线路图导航。几何是固定的：线只在 45° 和 90° 转弯，换乘站是白环。
+import { MAIN, BRANCH, REF, BRANCH_FROM, BRANCH_TO, LINES } from "../data/route";
+interface Props { current: string }
+const { current } = Astro.props;
+
+const X = 34;          // 主线的横坐标
+const BX = 150;        // 支线的横坐标
+const STEP = 52;       // 普通站距
+const top = 26;
+// 主线各站的纵坐标：两个换乘站之间要留出支线斜着出去再回来的距离
+const ys: number[] = [];
+let y = top;
+const iFrom = MAIN.findIndex((s) => s.path === BRANCH_FROM);
+const iTo = MAIN.findIndex((s) => s.path === BRANCH_TO);
+const span = (BX - X) * 2 + 76; // 两段 45° 斜线 + 支线上的直线段
+MAIN.forEach((_, i) => {
+  ys.push(y);
+  y += i >= iFrom && i < iTo ? span / (iTo - iFrom) : STEP;
+});
+const yFrom = ys[iFrom], yTo = ys[iTo];
+const bTop = yFrom + (BX - X), bBottom = yTo - (BX - X);
+const bys = BRANCH.map((_, i) => bTop + 12 + (i * (bBottom - bTop - 24)) / Math.max(1, BRANCH.length - 1));
+const mainEnd = ys[ys.length - 1];
+const refY = mainEnd + 70;
+const height = refY + 30;
+const iSite = MAIN.findIndex((s) => s.line === "site") - 1; // 现场线从主线的最后一站接出
+const notes: Record<string, string> = { [BRANCH_FROM]: "新套机在此换乘", [BRANCH_TO]: "支线回到主线" };
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+const href = (p: string) => base + p;
+---
+<nav class="rail" aria-label="上手线路">
+  <div class="diagram" style={`height:${height}px`}>
+    <svg class="lines" width="240" height={height} viewBox={`0 0 240 ${height}`} aria-hidden="true">
+      <path class="l-branch" d={`M${X} ${yFrom} L${BX} ${bTop} L${BX} ${bBottom} L${X} ${yTo}`} />
+      <path class="l-site" d={`M${X} ${ys[iSite]} L${X} ${mainEnd}`} />
+      <path class="l-main" d={`M${X} ${top} L${X} ${ys[iSite]}`} />
+      <path class="l-ref" d={`M${X} ${refY - 22} L${X} ${refY + 22}`} />
+    </svg>
+    <ol class="stops">
+      {MAIN.map((s, i) => (
+        <li class:list={["stop", s.line === "site" ? "on-site" : "on-main", { here: s.path === current, change: s.path === BRANCH_FROM || s.path === BRANCH_TO }]}
+            style={`top:${ys[i]}px;left:${X}px`}>
+          <a href={href(s.path)} aria-current={s.path === current ? "page" : undefined}>
+            <span class="dot" /><span class="name">{s.name}{notes[s.path] && <small>{notes[s.path]}</small>}</span>
+          </a>
+        </li>
+      ))}
+      {BRANCH.map((s, i) => (
+        <li class:list={["stop", "on-branch", { here: s.path === current }]} style={`top:${bys[i]}px;left:${BX}px`}>
+          <a href={href(s.path)} aria-current={s.path === current ? "page" : undefined}>
+            <span class="dot" /><span class="name">{s.name}</span>
+          </a>
+        </li>
+      ))}
+      {REF.map((s) => (
+        <li class:list={["stop", "on-ref", { here: s.path === current }]} style={`top:${refY}px;left:${X}px`}>
+          <a href={href(s.path)} aria-current={s.path === current ? "page" : undefined}>
+            <span class="dot" /><span class="name">{s.name}</span>
+          </a>
+        </li>
+      ))}
+    </ol>
+  </div>
+  <dl class="legend">
+    <div><dt><i class="swatch main" />{LINES.main.name}</dt><dd>{LINES.main.who}</dd></div>
+    <div><dt><i class="swatch branch" />{LINES.branch.name}</dt><dd>{LINES.branch.who}</dd></div>
+    <div><dt><i class="swatch site" />{LINES.site.name}</dt><dd>{LINES.site.who}</dd></div>
+    <div><dt><i class="swatch ref" />{LINES.ref.name}</dt><dd>{LINES.ref.who}</dd></div>
+  </dl>
+</nav>

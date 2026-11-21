@@ -1,8 +1,10 @@
-# 复制为 config/config.yaml 后按本机情况修改。config.yaml 不入库。
+# 全新套机的配置模板：复制为 config/config.yaml 后按 docs/QUICK_START.md 第 4 节逐项填写。config.yaml 不入库。
+# 手上是已有档案的套机（config/kits/ 下有它的目录）时不要用这个文件，直接复制它的档案。
 # 这里只列出必须按本机填写的项；其余参数（限速、跟随增益、工作空间等）的默认值
 # 和含义见 backend/soarm/config.py，需要调整时把对应字段写到这里覆盖即可。
 
-# 启动并连接设备后自动进入的模式：idle / keyboard / follow / fused。生产运行一般设为 follow
+# 启动并连接设备后自动进入的模式：idle / keyboard / follow / fused。
+# 展示时有外参用 fused（腕部跟随 + 深度引导），没有外参用 follow
 # start_mode: idle
 
 # 全局初始位见 config.py 的 home。腕部相机画面是侧的时调整 wrist_roll（默认 -90）。
@@ -26,7 +28,9 @@ arms:
     follow_tilt_sign: 1.0
 
 head:
-  port: ""              # 留空表示不使用云台
+  # 只在给云台定零点、找刻度时填写；定好之后改回空字符串，云台由舵机力矩保持，
+  # 上电后用 soarm-tools head-set 转到工作刻度，控制台不接管它
+  port: ""
   pan:  {id: 1, center: 2048, min: 1500, max: 2600}   # 用 soarm-tools head-watch 确定
   tilt: {id: 2, center: 2048, min: 1700, max: 2400}
 

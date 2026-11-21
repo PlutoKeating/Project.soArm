@@ -1,0 +1,6 @@
+---
+// 验证状态的记号：实心圆 = 已在真机验证，空心环 = 尚未验证。靠形状区分，不靠颜色。
+interface Props { ok?: boolean }
+const { ok = true } = Astro.props;
+---
+<span class:list={["mark", ok ? "ok" : "todo"]}><i aria-hidden="true" />{ok ? "已在真机验证" : "尚未在真机验证"}</span>

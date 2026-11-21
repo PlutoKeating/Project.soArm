@@ -1,0 +1,58 @@
+---
+layout: ../layouts/Doc.astro
+title: 在新电脑上安装
+description: 一台没装过任何东西的 Linux 电脑，装好依赖，不接硬件先把控制台跑起来。这一站不会让机械臂动。
+---
+import Notice from "../components/Notice.astro";
+
+## 拿到代码
+
+```bash
+git clone https://github.com/PlutoKeating/Project.soArm.git
+cd Project.soArm
+```
+
+后面所有命令都在这个目录里执行。
+
+## 安装 uv
+
+依赖和 Python 版本都由 [uv](https://docs.astral.sh/uv/) 管理，不需要自己装 Python。
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+装完重新打开终端，`uv --version` 能输出版本号就对了。
+
+## 安装依赖和手部模型
+
+```bash
+uv sync --extra realsense
+scripts/fetch_models.sh
+```
+
+第一条会下载 Python 3.12、LeRobot、MediaPipe 和 RealSense 的驱动，其中 torch 体积较大，要等几分钟。第二条把手部检测模型下载到 `models/`。
+
+## 给串口权限
+
+机械臂通过串口通信，当前用户要在 `dialout` 组里。
+
+```bash
+groups | grep -q dialout && echo "已经在组里" || sudo usermod -aG dialout $USER
+```
+
+如果执行了 `usermod`，要**注销并重新登录**才生效。
+
+## 不接硬件先跑通
+
+```bash
+uv run soarm-console --mock
+```
+
+打开 [http://127.0.0.1:8000](http://127.0.0.1:8000)。你应该看到控制台：顶部是模式按钮和急停，中间是两只臂和三路画面的面板。此时机械臂和云台是软件替身，按 <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> 切换模式不会有任何东西动。
+
+回到终端按 <kbd>Ctrl</kbd>+<kbd>C</kbd> 结束。
+
+<Notice kind="info" title="想确认代码没问题">
+`uv run pytest` 会跑一遍不依赖硬件的测试，应该全部通过。
+</Notice>

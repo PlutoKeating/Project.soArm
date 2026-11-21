@@ -1,0 +1,13 @@
+---
+import { MAIN, BRANCH, REF } from "../data/route";
+const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+interface Props { line: "main" | "site" | "branch" | "ref" }
+const { line } = Astro.props;
+const list = line === "main" ? MAIN.slice(1).filter((s) => s.line === "main") : line === "site" ? MAIN.filter((s) => s.line === "site") : line === "branch" ? BRANCH : REF;
+const cls = { main: "on-main", site: "on-site", branch: "on-branch", ref: "on-ref" }[line];
+---
+<ul class="routes">
+  {list.map((s) => (
+    <li class={cls}><a href={base + s.path}><i aria-hidden="true" /><b>{s.name}</b><span>{s.note}</span></a></li>
+  ))}
+</ul>

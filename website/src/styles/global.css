@@ -1,0 +1,273 @@
+/* 色板：珐琅深蓝的线路牌 + 瓷白的阅读栏 + 四条线的颜色 */
+:root {
+  --enamel: #0e1a3c;
+  --enamel-up: #19295a;
+  --on-enamel: #f4f6fa;
+  --on-enamel-2: #aab8dc;
+  --porcelain: #f4f6fa;
+  --paper: #ffffff;
+  --ink: #121a30;
+  --ink-2: #465070;
+  --rule: #d3d9e7;
+  --scarlet: #e03a2f;
+  --scarlet-ink: #bf271d;
+  --amber: #f2a900;
+  --amber-ink: #7a5300;
+  --green: #1c9a57;
+  --green-ink: #0f6e3c;
+  --cobalt: #2c6be0;
+  --cobalt-ink: #1d52bd;
+  --line: var(--scarlet);
+  --line-ink: var(--scarlet-ink);
+  --sans: "Overpass Variable", "Noto Sans SC Variable", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  --mono: "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --side: 380px;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+[data-line="site"] { --line: var(--green); --line-ink: var(--green-ink); }
+[data-line="branch"] { --line: var(--amber); --line-ink: var(--amber-ink); }
+[data-line="ref"] { --line: var(--cobalt); --line-ink: var(--cobalt-ink); }
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-padding-top: 5rem; }
+body {
+  margin: 0;
+  background: var(--porcelain);
+  color: var(--ink);
+  font: 400 1.0625rem/1.8 var(--sans);
+  font-feature-settings: "tnum";
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--enamel); color: var(--on-enamel); }
+:focus-visible { outline: 3px solid var(--cobalt); outline-offset: 3px; border-radius: 2px; }
+a { color: var(--cobalt-ink); text-decoration-thickness: 1px; text-underline-offset: 0.22em; }
+a:hover { text-decoration-thickness: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.skip { position: absolute; left: 1rem; top: -4rem; z-index: 10; background: var(--paper); color: var(--ink); padding: 0.5rem 1rem; }
+.skip:focus { top: 1rem; }
+
+/* ---------------------------------------------------------------- 线路牌 */
+.side {
+  position: fixed; inset: 0 auto 0 0; width: var(--side);
+  background: var(--enamel); color: var(--on-enamel);
+  display: flex; flex-direction: column;
+  overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--enamel-up) transparent;
+}
+.brand { padding: 1.75rem 2.25rem 1.25rem; display: flex; align-items: center; justify-content: space-between; }
+.brand-name { display: flex; align-items: center; gap: 0.85rem; color: inherit; text-decoration: none; font-weight: 700; font-size: 1.125rem; line-height: 1.3; }
+.brand-name small { display: block; font-weight: 400; font-size: 0.8125rem; color: var(--on-enamel-2); letter-spacing: 0.08em; }
+.brand-name svg { flex: none; fill: var(--enamel); stroke: var(--on-enamel); stroke-width: 4; }
+.brand-name svg .bar { stroke: var(--scarlet); stroke-width: 6; }
+.menu { display: none; }
+.rail-wrap { padding: 0.25rem 2.25rem 1.5rem; flex: 1; display: flex; flex-direction: column; }
+.diagram { position: relative; }
+.lines { position: absolute; left: 0; top: 0; overflow: visible; }
+.lines path { fill: none; stroke-width: 8; stroke-linejoin: round; stroke-linecap: round; }
+.l-main { stroke: var(--scarlet); }
+.l-branch { stroke: var(--amber); }
+.l-site { stroke: var(--green); }
+.l-ref { stroke: var(--cobalt); }
+.stops { list-style: none; margin: 0; padding: 0; }
+.stop { position: absolute; transform: translateY(-50%); }
+.stop a {
+  display: flex; align-items: center; gap: 0.9rem; margin-left: -9px;
+  color: var(--on-enamel-2); text-decoration: none; font-size: 1rem; line-height: 1.2; white-space: nowrap;
+  padding: 0.35rem 0.6rem 0.35rem 0; border-radius: 999px;
+  transition: color 0.2s var(--ease);
+}
+.stop a:hover, .stop a:focus-visible { color: var(--on-enamel); }
+.dot {
+  flex: none; width: 18px; height: 18px; border-radius: 50%;
+  background: var(--on-enamel); box-shadow: 0 0 0 3px var(--enamel);
+  transition: transform 0.2s var(--ease);
+}
+.stop:not(.here) a:hover .dot { transform: scale(1.2); }
+.name small { display: block; font-size: 0.75rem; font-weight: 400; color: var(--amber); margin-top: 0.15rem; }
+.stop.change .dot { background: var(--enamel); box-shadow: 0 0 0 4px var(--on-enamel), 0 0 0 7px var(--enamel); }
+.stop.here a { color: var(--on-enamel); font-weight: 700; font-size: 1.125rem; }
+.stop.here .dot {
+  background: var(--scarlet); box-shadow: 0 0 0 4px var(--on-enamel), 0 0 0 7px var(--enamel);
+  transform: scale(1.25); view-transition-name: here;
+}
+.stop.on-branch.here .dot { background: var(--amber); }
+.stop.on-site.here .dot { background: var(--green); }
+.stop.on-ref.here .dot { background: var(--cobalt); }
+.legend { margin: 1.5rem 0 0; padding-top: 1rem; border-top: 1px solid var(--enamel-up); font-size: 0.8125rem; line-height: 1.45; display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem 1rem; }
+.legend dt { font-weight: 700; display: flex; align-items: center; gap: 0.6rem; }
+.legend dd { margin: 0.1rem 0 0; color: var(--on-enamel-2); }
+.swatch { display: inline-block; width: 1.75rem; height: 6px; border-radius: 3px; background: var(--line); }
+.swatch.main { background: var(--scarlet); }
+.swatch.branch { background: var(--amber); }
+.swatch.site { background: var(--green); }
+.swatch.ref { background: var(--cobalt); }
+.side-foot { margin: auto 0 0; padding-top: 1.25rem; font-size: 0.875rem; }
+.side-foot a { color: var(--on-enamel-2); }
+.side-foot a:hover { color: var(--on-enamel); }
+
+/* ---------------------------------------------------------------- 阅读栏 */
+main { margin-left: var(--side); padding: 5.5rem clamp(1.5rem, 6vw, 6.5rem) 5rem; }
+.doc, .onward { max-width: 44rem; }
+h1 { font-size: clamp(2.25rem, 1.6rem + 2.6vw, 3.25rem); line-height: 1.15; font-weight: 800; letter-spacing: -0.01em; margin: 0 0 1.25rem; text-wrap: balance; }
+.lead { font-size: 1.25rem; line-height: 1.7; color: var(--ink-2); margin: 0 0 1.25rem; }
+.where { display: flex; align-items: center; gap: 0.75rem; margin: 0 0 3.5rem; font-size: 0.9375rem; font-weight: 700; color: var(--line-ink); }
+.where span { font-weight: 400; color: var(--ink-2); }
+
+.doc h2 { font-size: 1.625rem; line-height: 1.3; font-weight: 800; margin: 4rem 0 1rem; text-wrap: balance; }
+.doc h3 { font-size: 1.1875rem; line-height: 1.4; font-weight: 700; margin: 2.5rem 0 0.5rem; }
+.doc p { margin: 0 0 1.15rem; }
+.doc ul, .doc ol { margin: 0 0 1.15rem; padding-left: 1.4rem; }
+.doc li { margin-bottom: 0.4rem; }
+.doc li::marker { color: var(--line-ink); font-weight: 700; }
+.doc strong { font-weight: 700; }
+.doc h2 a, .doc h3 a { color: inherit; text-decoration: none; }
+
+/* 步骤页：正文左侧延续本页所在线路，每个二级标题是一站 */
+.stepped { counter-reset: step; position: relative; }
+.stepped h2 { counter-increment: step; position: relative; }
+@media (min-width: 62rem) {
+  .stepped h2::before {
+    content: counter(step);
+    position: absolute; left: -4.25rem; top: -0.2rem;
+    width: 2.6rem; height: 2.6rem; border-radius: 50%;
+    display: grid; place-items: center;
+    background: var(--porcelain); color: var(--ink);
+    border: 5px solid var(--line);
+    font: 800 1.125rem/1 var(--sans);
+  }
+}
+@media (max-width: 61.99rem) {
+  .stepped h2::before { content: counter(step) "　"; color: var(--line-ink); }
+}
+
+@media (min-width: 62rem) {
+  /* 线的起点由脚本量出第一个二级标题的位置后给出；没有脚本时不画线，只有站点圆环 */
+  .stepped[style*="--first"]::before {
+    content: ""; position: absolute; left: calc(-4.25rem + 1.3rem - 3px); top: var(--first); bottom: 0;
+    width: 6px; border-radius: 3px; background: var(--line); opacity: 0.3;
+  }
+}
+
+/* 代码 */
+code { font-family: var(--mono); font-size: 0.875em; font-feature-settings: "zero"; }
+:not(pre) > code { background: #e4e9f3; color: var(--ink); padding: 0.12em 0.4em; border-radius: 4px; overflow-wrap: anywhere; }
+td code { white-space: nowrap; overflow-wrap: normal; font-size: 0.9375em; }
+kbd { font: 700 0.8125em/1 var(--mono); background: var(--paper); border: 1px solid var(--ink); border-bottom-width: 3px; border-radius: 5px; padding: 0.2em 0.5em; white-space: nowrap; }
+.code { margin: 0 0 1.5rem; background: var(--enamel); border-radius: 8px; display: grid; }
+pre {
+  margin: 0 0 1.5rem; padding: 1.1rem 1.25rem; overflow-x: auto; border-radius: 8px;
+  background: var(--enamel) !important; color: var(--on-enamel);
+  font-size: 0.9375rem; line-height: 1.75; tab-size: 2;
+  scrollbar-width: thin; scrollbar-color: var(--enamel-up) transparent;
+  --astro-code-foreground: #f4f6fa; --astro-code-background: #0e1a3c;
+  --astro-code-token-comment: #8e9cc4; --astro-code-token-keyword: #ffb829;
+  --astro-code-token-string: #8fe0b0; --astro-code-token-constant: #9cc0ff;
+  --astro-code-token-function: #f4f6fa; --astro-code-token-parameter: #f4f6fa;
+  --astro-code-token-string-expression: #8fe0b0; --astro-code-token-punctuation: #aab8dc; --astro-code-token-link: #9cc0ff;
+}
+.code pre { margin: 0; padding-top: 0.15rem; }
+pre code { font-size: inherit; }
+.copy {
+  justify-self: end; margin: 0.5rem 0.5rem 0 0;
+  font: 500 0.8125rem/1 var(--sans); color: var(--on-enamel-2);
+  background: var(--enamel-up); border: 0; border-radius: 6px; padding: 0.5rem 0.7rem; cursor: pointer;
+  transition: color 0.2s var(--ease), background 0.2s var(--ease);
+}
+.copy:hover { color: var(--on-enamel); background: #24387a; }
+
+/* 表格：时刻表的样子 */
+.table { overflow-x: auto; margin: 0 0 1.75rem; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9375rem; line-height: 1.6; }
+th { text-align: left; font-weight: 700; color: var(--ink-2); font-size: 0.8125rem; padding: 0 1rem 0.5rem 0; border-bottom: 2px solid var(--ink); white-space: nowrap; }
+td { padding: 0.7rem 1rem 0.7rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+td:first-child { font-weight: 700; }
+tr:last-child td { border-bottom-color: var(--ink); }
+
+/* 通告 */
+.notice { margin: 1.75rem 0; background: var(--paper); border: 1px solid var(--rule); border-radius: 8px; overflow: hidden; }
+.notice-label { display: flex; align-items: center; gap: 0.55rem; margin: 0 !important; padding: 0.5rem 1.1rem; font-weight: 700; font-size: 0.9375rem; line-height: 1.4; background: var(--cobalt-ink); color: #fff; }
+.notice-label svg { flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.notice.moves .notice-label { background: var(--scarlet-ink); }
+.notice.caution .notice-label { background: var(--amber); color: var(--ink); }
+.notice.unverified .notice-label { background: var(--paper); color: var(--ink); border-bottom: 1px dashed var(--ink-2); }
+.notice-body { padding: 0.9rem 1.1rem 1rem; }
+.notice-body > :last-child { margin-bottom: 0; }
+
+/* 验证状态的记号 */
+.mark { display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.875rem; font-weight: 700; white-space: nowrap; }
+.mark i { width: 0.8rem; height: 0.8rem; border-radius: 50%; border: 2.5px solid var(--ink); }
+.mark.ok i { background: var(--ink); }
+.mark.todo { color: var(--ink-2); }
+.mark.todo i { border-color: var(--ink-2); }
+
+/* 图 */
+figure { margin: 2rem 0 2.25rem; }
+figure svg { display: block; width: 100%; height: auto; }
+.fig-key { display: none; }
+figcaption { margin-top: 0.75rem; font-size: 0.9375rem; line-height: 1.6; color: var(--ink-2); }
+
+/* 首页的线路表 */
+.routes { list-style: none; padding: 0 !important; margin: 0 0 2rem; display: grid; gap: 0; }
+.routes li { margin: 0; border-top: 1px solid var(--rule); }
+.routes li:last-child { border-bottom: 1px solid var(--rule); }
+.routes a { display: grid; grid-template-columns: 3.25rem 9.5rem 1fr; align-items: center; gap: 0.5rem; padding: 0.8rem 0; color: inherit; text-decoration: none; }
+.routes a:hover b { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 0.22em; }
+.routes i { width: 1.1rem; height: 1.1rem; border-radius: 50%; border: 4px solid var(--scarlet); background: var(--porcelain); }
+.routes .on-branch i { border-color: var(--amber); }
+.routes .on-site i { border-color: var(--green); }
+.routes .on-ref i { border-color: var(--cobalt); }
+.routes b { font-weight: 700; }
+.routes span { color: var(--ink-2); font-size: 0.9375rem; }
+
+/* 上一站 / 下一站 */
+.onward { margin-top: 5rem; padding-top: 1.75rem; border-top: 6px solid var(--line); display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+.onward a { color: var(--ink); text-decoration: none; display: grid; gap: 0.15rem; padding: 0.25rem 0; }
+.onward small { font-size: 0.875rem; color: var(--ink-2); }
+.onward a span { font-size: 1.375rem; font-weight: 800; line-height: 1.3; }
+.onward a:hover span { text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 0.2em; text-decoration-color: var(--line); }
+.onward .next { text-align: right; }
+
+/* ---------------------------------------------------------------- 小屏幕：线路牌收成顶栏 */
+@media (max-width: 61.99rem) {
+  .side { position: sticky; top: 0; z-index: 5; inset: auto; width: auto; max-height: 100dvh; }
+  .brand { padding: 0.8rem 1rem; gap: 0.75rem; }
+  .brand-name { font-size: 1rem; }
+  .brand-name small { display: none; }
+  .brand-name svg { width: 24px; height: 24px; }
+  .menu {
+    display: flex; align-items: center; gap: 0.35rem; min-height: 2.75rem;
+    font: 700 0.9375rem/1 var(--sans); color: var(--on-enamel);
+    background: var(--enamel-up); border: 0; border-radius: 999px; padding: 0 0.6rem 0 1rem; cursor: pointer;
+  }
+  .menu svg { fill: none; stroke: currentColor; stroke-width: 2; transition: transform 0.25s var(--ease); }
+  .side[data-open] .menu svg { transform: rotate(180deg); }
+  .rail-wrap { display: none; padding: 0.5rem 1.25rem 1.75rem; }
+  .side[data-open] .rail-wrap { display: flex; }
+  main { margin-left: 0; padding: 2.5rem 1.25rem 3.5rem; }
+  .where { margin-bottom: 2.5rem; }
+  .doc h2 { margin-top: 3rem; font-size: 1.4375rem; }
+  /* 示意图放大到只看中间的图形，标注改用图下方的图例 */
+  figure { overflow: hidden; }
+  figure svg { width: 165%; max-width: none; margin-left: -32.5%; }
+  figure svg .lbl { display: none; }
+  .fig-key { display: grid; gap: 0.35rem; margin: 0.75rem 0 0; padding: 0; list-style: none; font-size: 0.9375rem; line-height: 1.5; }
+  .fig-key i { display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 50%; margin-right: 0.5rem; }
+  .legend { grid-template-columns: 1fr; }
+  .routes a { grid-template-columns: 2rem 1fr; }
+  .routes span { grid-column: 2; }
+  .onward a span { font-size: 1.125rem; }
+  .code pre { padding: 0.15rem 1rem 1rem; }
+}
+
+/* ---------------------------------------------------------------- 换页时，亮着的站点标记沿线路移到下一站 */
+@view-transition { navigation: auto; }
+::view-transition-group(here) { animation-duration: 0.55s; animation-timing-function: var(--ease); }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 0.18s; }
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+  * { transition: none !important; }
+}
+@media print {
+  .side, .onward, .copy { display: none; }
+  main { margin: 0; padding: 0; }
+  pre { background: #fff !important; color: #000; border: 1px solid #000; }
+}
