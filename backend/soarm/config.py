@@ -114,9 +114,10 @@ class FollowConfig:
     tilt_range_deg: tuple[float, float] = (-35.0, 40.0)
     lost_timeout_s: float = 1.5  # 丢失手这么久后开始回初始位
     min_hand_score: float = 0.5
-    # 两只臂同一时刻至多一只在跟随。另一只臂的视野质量要比当前跟随臂高出这个比例，
-    # 并且持续 switch_hold_s 秒，才会换臂，避免两臂来回抢
-    single_tracker: bool = True
+    # false（默认）：两只臂各跟各的，每只臂跟自己视野里最优的那只手，互不相干。
+    # true：两只臂同一时刻至多一只在跟随，由视野更好的那只负责；另一只臂的视野质量要比
+    #   当前跟随臂高出 switch_margin 并持续 switch_hold_s 秒才会换臂
+    single_tracker: bool = False
     switch_margin: float = 0.25
     switch_hold_s: float = 0.6
 

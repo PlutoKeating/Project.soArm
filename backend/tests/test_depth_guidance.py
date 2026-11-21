@@ -206,7 +206,7 @@ def test_depth_cue_points_the_arm_at_a_hand_its_wrist_camera_cannot_see(world):
     world.wrist_blind = {"left", "right"}  # 只有深度相机看得到
     world.hand_in, world.point = "left", np.array([0.55, 0.30, 0.30])  # 左臂的左前方
     world.step(3.0)
-    assert rig.ctl._follow_arm == "left"
+    assert rig.ctl._cue_arm == "left"
     assert "深度引导" in rig.ctl.arms["left"].status
     # 腕部相机光轴已经对准了手：把“看不到”去掉后，手应落在画面中心附近
     world.wrist_blind = set()
@@ -221,7 +221,7 @@ def test_depth_cue_picks_the_arm_that_needs_less_turning(world):
     world.wrist_blind = {"left", "right"}
     world.hand_in, world.point = "right", np.array([0.55, -0.25, 0.25])  # 右臂的右前方
     world.step(3.0)
-    assert rig.ctl._follow_arm == "right"
+    assert rig.ctl._cue_arm == "right"
     assert rig.at_home("left")
 
 
@@ -229,8 +229,8 @@ def test_wrist_camera_takes_over_once_it_sees_the_hand(world):
     rig = world.rig
     world.hand_in, world.point = "left", np.array([0.55, 0.30, 0.30])
     world.step(3.0)
-    assert rig.ctl._follow_arm == "left"
-    assert rig.ctl.arms["left"].status in ("跟随中", "已对准")  # 不再是“深度引导”
+    assert rig.ctl._cue_arm is None  # 腕部相机自己看到了，不再需要引导
+    assert rig.ctl.arms["left"].status in ("跟随中", "已对准")
     cx, cy = world.pixel("left")
     assert abs(cx - 0.5) < 0.08 and abs(cy - 0.5) < 0.10
 
@@ -252,7 +252,7 @@ def test_uncalibrated_arm_gets_no_depth_cue(tmp_path):
     w.wrist_blind = {"left", "right"}
     w.hand_in, w.point = "left", np.array([0.55, 0.30, 0.30])
     w.step(2.0)
-    assert rig.ctl._follow_arm is None and rig.at_home("left")
+    assert rig.ctl._cue_arm is None and rig.at_home("left")
 
 
 def test_auto_calibration_collects_pairs_while_tracking_and_recovers_extrinsic(tmp_path):
@@ -271,7 +271,6 @@ def test_auto_calibration_collects_pairs_while_tracking_and_recovers_extrinsic(t
     for _ in range(45):  # 手在左臂前方慢慢换位置
         w.point = np.array([rng.uniform(0.40, 0.75), rng.uniform(-0.05, 0.30), rng.uniform(0.10, 0.40)])
         w.step(1.2)
-    assert rig.ctl._follow_arm == "left"
     n = len(rig.ctl.auto_samples["left"])
     assert n >= 20
     assert len(rig.ctl.auto_samples["right"]) == 0
@@ -282,3 +281,16 @@ def test_auto_calibration_collects_pairs_while_tracking_and_recovers_extrinsic(t
     assert (tmp_path / "extrinsics.yaml").exists()
     with pytest.raises(ValueError):
         rig.ctl.calib_auto_solve("right")
+
+
+def test_depth_cue_guides_only_the_arm_that_cannot_see_while_the_other_keeps_following(world):
+    """两臂独立跟随时：一只臂的腕部相机在跟自己的手，另一只看不到，深度引导只带后者。"""
+    rig = world.rig
+    world.wrist_blind = {"right"}
+    world.hand_in, world.point = "left", np.array([0.55, 0.05, 0.30])
+    world.step(3.0)
+    assert rig.ctl.arms["left"].status in ("跟随中", "已对准")
+    assert rig.ctl._cue_arm == "right"
+    assert "深度引导" in rig.ctl.arms["right"].status
+    snap = rig.ctl.snapshot()
+    assert snap["arms"]["left"]["fused_selected"] and snap["arms"]["right"]["fused_selected"]

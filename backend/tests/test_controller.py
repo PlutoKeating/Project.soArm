@@ -293,7 +293,6 @@ def test_disabled_arm_holds_in_every_mode(rig):
 
 def test_pan_never_crosses_toward_the_mast(rig):
     """中柱避让：左臂不超过前偏右 30°（+pan），右臂不超过前偏左 30°（-pan）。"""
-    rig.cfg.follow.single_tracker = False  # 这里要两只臂同时转到各自的极限
     rig.ctl.set_mode("follow")
     rig.run(6.0)
     rig.cams["wrist_left"].show(1.0, 0.5)   # 手一直在左臂画面最右
@@ -313,6 +312,7 @@ def _show(cam, cx, cy, size=0.4, score=0.9):
 
 
 def test_only_one_arm_tracks_and_the_better_view_wins(rig):
+    rig.cfg.follow.single_tracker = True
     rig.ctl.set_mode("follow")
     rig.run(6.0)
     # 两只臂都看到手：左臂画面里手居中偏一点，右臂画面里手在边角且很小
@@ -328,6 +328,7 @@ def test_only_one_arm_tracks_and_the_better_view_wins(rig):
 
 
 def test_tracker_switches_only_when_other_view_is_clearly_better(rig):
+    rig.cfg.follow.single_tracker = True
     rig.ctl.set_mode("follow")
     rig.run(6.0)
     _show(rig.cams["wrist_left"], 0.6, 0.5)
@@ -351,6 +352,7 @@ def test_tracker_switches_only_when_other_view_is_clearly_better(rig):
 
 
 def test_tracker_hands_over_after_grace_when_current_loses_hand(rig):
+    rig.cfg.follow.single_tracker = True
     rig.ctl.set_mode("follow")
     rig.run(6.0)
     _show(rig.cams["wrist_left"], 0.6, 0.5)
@@ -371,6 +373,7 @@ def test_tracker_hands_over_after_grace_when_current_loses_hand(rig):
 
 
 def test_disabled_arm_is_never_chosen_as_tracker(rig):
+    rig.cfg.follow.single_tracker = True
     rig.ctl.set_arm_enabled("left", False)
     rig.ctl.set_mode("follow")
     rig.run(6.0)
@@ -431,3 +434,24 @@ def test_follow_coasts_in_the_same_direction_after_losing_the_hand(rig):
     assert rt.pan_off < at_loss - 3.0  # 丢失后沿原方向（偏转量减小）继续转
     rig.run(8.0)
     assert rig.at_home("left")  # 一直找不到就回初始位
+
+
+def test_both_arms_follow_their_own_hand_independently(rig):
+    """默认：两只臂各跟各的，同时在跟，互不让位。"""
+    rig.ctl.set_mode("follow")
+    rig.run(6.0)
+    _show(rig.cams["wrist_left"], 0.2, 0.5)   # 左臂画面里手在左侧
+    _show(rig.cams["wrist_right"], 0.8, 0.3)  # 右臂画面里手在右上
+    rig.run(1.0)
+    left, right = rig.ctl.arms["left"], rig.ctl.arms["right"]
+    assert abs(left.pan_off) > 3 and abs(right.pan_off) > 3
+    assert np.sign(left.pan_off) != np.sign(right.pan_off)  # 各自朝自己那只手转，方向相反
+    assert "让位" not in left.status and "让位" not in right.status
+    snap = rig.ctl.snapshot()
+    assert snap["arms"]["left"]["fused_selected"] and snap["arms"]["right"]["fused_selected"]
+    # 一只手消失只影响对应的那只臂
+    rig.cams["wrist_left"].hand = None
+    rig.run(8.0)
+    assert rig.at_home("left")
+    assert abs(rig.ctl.arms["right"].pan_off) > 3
+    assert not rig.ctl.snapshot()["arms"]["left"]["fused_selected"]
