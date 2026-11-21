@@ -12,6 +12,8 @@ Python 包 `soarm`，位于 `backend/soarm/`。依赖由仓库根目录的 `pypr
 | `uv run soarm-tools cameras` | 列出相机并保存快照 |
 | `uv run soarm-tools watch <arm> [--once]` | 只读：显示该臂的行程限位并实时显示关节角度 |
 | `uv run soarm-tools calibrate <arm>` | 运行 LeRobot 标准校准流程，结果写入舵机（一般不需要） |
+| `uv run soarm-tools collect-calib [--prod URL]` | 旁路采集外参标定样本，不打断运行中的控制台 |
+| `uv run soarm-tools solve-calib [样本文件]` | 用旁路采集的样本离线求解外参 |
 | `uv run soarm-tools head-watch` | 释放云台力矩并显示原始刻度 |
 
 ## 文件
@@ -25,6 +27,7 @@ soarm/
   tools.py                上电准备工具
   assets/so101_new_calib.urdf   仅含运动学的 SO-101 URDF
   control/controller.py   模式状态机、三种模式、安全处理
+  control/geometry.py     腕部相机视线与指向偏转量的几何换算
   perception/cameras.py   相机采集线程、主手锁定、标注
   perception/hand.py      手部检测接口与 MediaPipe 实现
   robot/base.py           Arm / Head 抽象接口
@@ -42,6 +45,7 @@ uv run pytest
 
 - `test_kinematics.py`：正逆解往返、初始位与休息位合理性、外参求解。
 - `test_controller.py`：用模拟臂和假相机逐拍驱动控制器，覆盖三种模式与急停、限速、工作空间、受阻让位、单臂停用、中柱避让、双臂择优单臂跟随。
+- `test_depth_guidance.py`：视线几何、外参自动求解（含噪声与错配样本）、按真实几何成像的合成场景下的深度引导与自动标定。
 - `test_api.py`：经 HTTP / WebSocket 走一遍接口；检测器加载（未下载模型时跳过）。
 
 测试不打开任何串口或相机。

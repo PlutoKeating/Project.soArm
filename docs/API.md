@@ -10,7 +10,7 @@
 |---|---|---|
 | `GET /api/state` | – | 当前状态快照，结构同 WebSocket 下行 |
 | `GET /api/meta` | – | 模式列表、两臂与云台的键位表、相机名、臂与相机的对应关系 |
-| `POST /api/mode` | `{"mode": "idle\|keyboard\|follow\|fused"}` | 切换模式。进入 follow / fused 会先回初始位 |
+| `POST /api/mode` | `{"mode": "idle\|keyboard\|follow\|fused"}` | 切换模式。进入 follow / fused 会先回初始位。`fused` 默认是指向式深度引导 |
 | `POST /api/estop` | `{"active": true\|false}` | 急停 / 解除。两者都会把模式置为 idle |
 | `POST /api/go` | `{"pose": "home\|rest", "release": false}` | 前往初始位或休息位；`release` 为真时到位后释放力矩 |
 | `POST /api/torque` | `{"active": true\|false}` | 开关所有臂的力矩。关闭后手臂会下落 |
@@ -20,6 +20,8 @@
 | `POST /api/calib/sample` | `{"arm": "left", "u": 0.5, "v": 0.5}` | 记录一个标定点。`u`、`v` 是深度相机画面上夹爪尖的归一化坐标 |
 | `POST /api/calib/undo` | `{"arm": "left"}` | 撤销该臂最后一个标定点 |
 | `POST /api/calib/clear` | `{"arm": "left"}` | 清空该臂的标定点 |
+| `POST /api/calib/auto/solve` | `{"arm": "left"}` | 用自动积累的配对样本求解该臂外参并保存，返回 `{"arm", "rms", "samples", "collected"}` |
+| `POST /api/calib/auto/clear` | `{"arm": "left"}` | 清空该臂自动积累的样本 |
 | `POST /api/calib/solve` | `{"arm": "left"}` | 求解外参并保存，返回 `{"arm", "rms", "samples"}`，`rms` 单位为米 |
 
 ## 视频
@@ -65,6 +67,7 @@
       "calib_rms_mm": null,
       "calib_samples": 0,
       "fused_selected": false,
+      "auto_samples": 0,
       "view_quality": 0.0
     }
   },
@@ -91,6 +94,7 @@
 - `moving_to` 在回初始位或收到休息位的途中为 `"home"` 或 `"rest"`。
 - `calib_rms_mm` 是已保存外参的残差；`calib_samples` 是尚未求解的暂存点数。
 - `fused_selected` 表示这只臂当前负责跟随：腕部跟随模式下是拿到跟随权的那只，深度引导模式下是被选去够手的那只。
+- `auto_samples` 是外参自动标定已为这只臂积累的配对样本数。
 - `view_quality` 是这只臂的腕部相机当前看手的质量评分，0–1，0 表示看不到。
 - `cameras.*.fps` / `detect_fps` 是采集帧率和检测频率；`read_ms` 是取一帧的平均耗时（含等待下一帧），`detect_ms` 是单帧检测的平均耗时，用于排查卡顿。当前模式用不到某路相机的检测时，它的 `detect_fps` 为 0。
 - `head` 在未配置云台时为 `null`。

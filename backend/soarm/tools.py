@@ -252,7 +252,7 @@ def cmd_collect_calib(args: argparse.Namespace) -> int:
     counts: dict[str, int] = {}
     last_point: dict[str, np.ndarray] = {}
     prev_head: tuple[float, np.ndarray] | None = None
-    stats = {"轮询": 0, "深度相机有手": 0, "有臂在跟随": 0, "两边同时": 0}
+    stats = {"轮询": 0, "深度相机恰有一只手": 0, "有臂在跟随": 0, "两边同时": 0}
     t_end = time.monotonic() + args.seconds
     print(f"开始采集 {args.seconds:.0f} 秒，写入 {out}。Ctrl+C 可提前结束。")
     try:
@@ -264,8 +264,12 @@ def cmd_collect_calib(args: argparse.Namespace) -> int:
                     continue
                 stats["轮询"] += 1
                 head = worker.primary_hand(max_age_s=0.12)
-                ok_head = head is not None and head.xyz is not None and fc.depth_range[0] <= head.xyz[2] <= fc.depth_range[1]
-                stats["深度相机有手"] += ok_head
+                # 深度相机画面里必须恰好只有一只手：有多只时无法确定哪只才是腕部相机在跟的那只
+                ok_head = (
+                    head is not None and head.xyz is not None and worker.hand_count() == 1
+                    and fc.depth_range[0] <= head.xyz[2] <= fc.depth_range[1]
+                )
+                stats["深度相机恰有一只手"] += ok_head
                 try:
                     state = json.load(urllib.request.urlopen(f"{args.prod}/api/state", timeout=1))
                 except OSError as e:

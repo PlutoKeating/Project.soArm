@@ -670,7 +670,8 @@ class Controller:
                 if np.all(offsets >= lo - 20.0) and np.all(offsets <= hi + 20.0):
                     self._cues[name] = (offsets, hand.t, float(abs(offsets[0]) + 0.5 * abs(offsets[1])))
 
-        if fc.auto_calibrate:
+        # 深度相机画面里恰好只有一只手时才采样：有多只时无法确定哪只是腕部相机在跟的
+        if fc.auto_calibrate and cam.hand_count() == 1:
             self._collect_auto_sample(hand)
 
     def _collect_auto_sample(self, head_hand) -> None:
