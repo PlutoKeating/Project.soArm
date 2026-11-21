@@ -187,12 +187,14 @@ def test_follow_offsets_are_bounded(rig):
 
 
 def _calibrate_identity(rig):
-    """假设相机系与两臂基座系重合，便于直接给出基座系下的手位置。"""
+    """假设相机系与两臂基座系重合，便于直接给出基座系下的手位置。用于伸出式引导的测试。"""
+    rig.cfg.fused.reach = True
     for name in ("left", "right"):
         rig.ctl.calibration.arms[name] = ArmExtrinsic(np.eye(4), 0.004, 8)
 
 
 def test_fused_falls_back_to_wrist_follow_without_calibration(rig):
+    rig.cfg.fused.reach = True
     rig.ctl.set_mode("fused")
     rig.run(6.0)
     rig.cams["head"].show(0.5, 0.5, xyz=[0.4, 0.0, 0.5])

@@ -19,9 +19,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ..calib import Calibration, CalibSession
+from ..calib import ArmExtrinsic, BearingSample, Calibration, CalibSession, solve_from_bearings
 from ..config import ArmConfig, Config
 from ..kinematics import ARM_JOINTS, IK_JOINTS, ArmKinematics
+from .geometry import aim_offsets, wrist_ray
 from ..perception.cameras import CameraWorker
 from ..robot.base import JOINTS, Arm, Head
 
@@ -129,6 +130,10 @@ class Controller:
         self._follow_arm: str | None = None  # 腕部跟随模式下当前负责跟随的臂
         self._follow_rival: tuple[str, float] | None = None  # (候选臂, 开始领先的时刻)
         self._follow_lost_at: float | None = None  # 当前跟随臂开始看不到手的时刻
+        # 深度引导：每只臂“要对准深度相机看到的手”所需的 (偏转量, 观测时刻, 转角代价)
+        self._cues: dict[str, tuple[np.ndarray, float, float]] = {}
+        # 外参自动标定积累的配对样本
+        self.auto_samples: dict[str, list[BearingSample]] = {name: [] for name in arms}
 
         self.home = dict(cfg.home)
         # 肩部参考点：shoulder_lift 关节大致所在位置，用作“伸出距离”的原点
@@ -243,6 +248,7 @@ class Controller:
             self.mode = mode
             self._fused_arm = None
             self._follow_arm = self._follow_rival = self._follow_lost_at = None
+            self._cues = {}
             for rt in self.arms.values():
                 self._reset_motion(rt)
                 if not rt.enabled:
@@ -384,9 +390,10 @@ class Controller:
 
     def _tick(self, dt: float, now: float) -> None:
         keys = self._active_keys(now)
-        if self.mode == "fused" and not self.estop:
+        if self.mode == "fused" and self.cfg.fused.reach and not self.estop:
             self._fused_select()
-        if self.mode == "follow" and not self.estop:
+        if self._pointing_mode() and not self.estop:
+            self._depth_tick(now)
             self._follow_select(now)
         for name, rt in self.arms.items():
             if not rt.arm.connected:
@@ -444,7 +451,7 @@ class Controller:
         elif self.mode == "follow":
             desired = self._follow(rt, dt, now)
         elif self.mode == "fused":
-            desired = self._fused(name, rt, dt, now)
+            desired = self._fused(name, rt, dt, now) if self.cfg.fused.reach else self._follow(rt, dt, now)
         else:
             desired = dict(rt.target)
             rt.status = rt.status or "保持"
@@ -584,6 +591,16 @@ class Controller:
         }
         seeing = {n: q for n, q in quality.items() if q > 0}
         current = self._follow_arm
+        cues = {n: c for n, c in self._cues.items() if n in quality}
+        if not seeing and cues:
+            # 没有腕部相机看到手，但深度相机看到了：交给转角最省的那只臂去对准。
+            # 当前臂只要差得不多就继续由它来，避免来回换
+            best = min(cues, key=lambda n: cues[n][2])
+            if current in cues and cues[current][2] <= cues[best][2] + self.cfg.fused.cue_switch_margin_deg:
+                best = current
+            self._follow_arm = best
+            self._follow_rival, self._follow_lost_at = None, None
+            return
         if current is None:
             self._follow_arm = max(seeing, key=seeing.get) if seeing else None
             self._follow_rival, self._follow_lost_at = None, None
@@ -623,6 +640,79 @@ class Controller:
         best = min(rt.hist, key=lambda h: abs(h[0] - t))
         return np.array([best[1], best[2]])
 
+    def _pointing_mode(self) -> bool:
+        """当前是否在用“转动对准”的方式跟随：腕部跟随，或指向式的深度引导。"""
+        return self.mode == "follow" or (self.mode == "fused" and not self.cfg.fused.reach)
+
+    @staticmethod
+    def _aspect(cam) -> float:
+        return cam.cfg.height / cam.cfg.width if cam.cfg.rotate in (0, 180) else cam.cfg.width / cam.cfg.height
+
+    def _depth_tick(self, now: float) -> None:
+        """处理深度相机这一拍的观测：算出各臂的引导量，并为外参自动标定积累样本。"""
+        self._cues = {}
+        fc = self.cfg.fused
+        cam = self.cameras.get(self.cfg.head_camera)
+        hand = cam.primary_hand(max_age_s=fc.cue_max_age_s) if cam else None
+        if hand is None or hand.xyz is None or not (fc.depth_range[0] <= hand.xyz[2] <= fc.depth_range[1]):
+            return
+
+        if self.mode == "fused" and self._head_matches_preset():
+            for name, rt in self.arms.items():
+                ext = self.calibration.arms.get(name)
+                if ext is None or not rt.limits:
+                    continue
+                point = ext.T_base_cam[:3, :3] @ hand.xyz + ext.T_base_cam[:3, 3]
+                home = {j: rt.home[j] for j in ARM_JOINTS}
+                offsets = aim_offsets(self.kin, home, point, self._pan_dir, self._tilt_dir)
+                lo, hi = self._offset_limits(rt)
+                # 超出可转范围太多就够不着：留 20° 余量，因为腕部相机视野很宽
+                if np.all(offsets >= lo - 20.0) and np.all(offsets <= hi + 20.0):
+                    self._cues[name] = (offsets, hand.t, float(abs(offsets[0]) + 0.5 * abs(offsets[1])))
+
+        if fc.auto_calibrate:
+            self._collect_auto_sample(hand)
+
+    def _collect_auto_sample(self, head_hand) -> None:
+        """当前跟随臂的腕部相机和深度相机同时看到手时，记下一对“视线 + 3D 点”。"""
+        fc = self.cfg.fused
+        name = self._follow_arm
+        rt = self.arms.get(name) if name else None
+        if rt is None or not rt.pos:
+            return
+        cam = self.cameras.get(rt.cfg.camera)
+        wrist_hand = cam.primary_hand(max_age_s=0.15) if cam else None
+        if wrist_hand is None or wrist_hand.score < self.cfg.follow.min_hand_score:
+            return
+        if abs(wrist_hand.t - head_hand.t) > 0.07:  # 两路观测要足够同时
+            return
+        if max(abs(wrist_hand.cx - 0.5), abs(wrist_hand.cy - 0.5)) * 2.0 > fc.auto_calib_center:
+            return  # 视场角是估计值，只有画面中部换算出的方向才够准
+        samples = self.auto_samples[name]
+        if samples and np.linalg.norm(samples[-1].cam_point - head_hand.xyz) < fc.auto_calib_spacing:
+            return
+        origin, direction = wrist_ray(
+            self.kin, {j: rt.pos[j] for j in ARM_JOINTS}, wrist_hand.cx, wrist_hand.cy,
+            cam.cfg.hfov_deg, self._aspect(cam),
+        )
+        samples.append(BearingSample(origin, direction, np.array(head_hand.xyz, float)))
+        if len(samples) > fc.auto_calib_max_samples:
+            del samples[0]
+
+    def calib_auto_solve(self, arm: str) -> dict:
+        """用自动积累的样本求解该臂的外参并保存。"""
+        with self._lock:
+            T, rms, used = solve_from_bearings(self.auto_samples[arm])
+            self.calibration.arms[arm] = ArmExtrinsic(T, rms, used)
+            if self.head_pos:
+                self.calibration.head_preset = dict(self.head_pos)
+            self.calibration.save(self.calib_path)
+            return {"arm": arm, "rms": rms, "samples": used, "collected": len(self.auto_samples[arm])}
+
+    def calib_auto_clear(self, arm: str) -> None:
+        with self._lock:
+            self.auto_samples[arm] = []
+
     def _follow(self, rt: ArmRuntime, dt: float, now: float) -> dict[str, float]:
         """瞄准式跟随：每来一帧观测，就算出“手在哪个方向”，直接把目标对准那里。
 
@@ -632,7 +722,7 @@ class Controller:
         f = self.cfg.follow
         rt.hist.append((now, rt.pos["shoulder_pan"] - rt.home["shoulder_pan"],
                         rt.pos["wrist_flex"] - rt.home["wrist_flex"]))
-        yielding = f.single_tracker and self.mode == "follow" and self._follow_arm not in (None, rt.arm.name)
+        yielding = f.single_tracker and self._pointing_mode() and self._follow_arm not in (None, rt.arm.name)
         cam = self.cameras.get(rt.cfg.camera)
         hand = None if yielding or cam is None else cam.primary_hand(max_age_s=0.25)
         if hand is not None and hand.score < f.min_hand_score:
@@ -640,31 +730,45 @@ class Controller:
         lo, hi = self._offset_limits(rt)
         current = np.array([rt.pan_off, rt.tilt_off])
 
-        if hand is not None and hand.t > rt.aim_t:
-            # 新的一帧：像素误差 -> 角度误差 -> 手所在方向对应的偏转量
-            e = np.array([(hand.cx - 0.5) * 2.0, (hand.cy - 0.5) * 2.0])
-            e = np.sign(e) * np.maximum(0.0, np.abs(e) - f.deadzone)
-            hfov = cam.cfg.hfov_deg
-            aspect = cam.cfg.height / cam.cfg.width if cam.cfg.rotate in (0, 180) else cam.cfg.width / cam.cfg.height
-            err_deg = e * np.array([hfov / 2.0, hfov * aspect / 2.0]) * f.aim_scale
-            # 手在画面右侧 -> 向右转（方位角减小）；手在画面下方 -> 低头（俯仰角减小）
-            signs = np.array([self._pan_dir * rt.cfg.follow_pan_sign, self._tilt_dir * rt.cfg.follow_tilt_sign])
-            observed = np.clip(self._measured_offset_at(rt, hand.t) - err_deg * signs, lo, hi)
+        # 观测来源：优先用自己的腕部相机；它看不到时，用深度相机给的引导
+        observed, observed_t, guided = None, 0.0, False
+        if hand is not None:
+            if hand.t > rt.aim_t:
+                # 像素误差 -> 角度误差 -> 手所在方向对应的偏转量
+                e = np.array([(hand.cx - 0.5) * 2.0, (hand.cy - 0.5) * 2.0])
+                e = np.sign(e) * np.maximum(0.0, np.abs(e) - f.deadzone)
+                hfov = cam.cfg.hfov_deg
+                err_deg = e * np.array([hfov / 2.0, hfov * self._aspect(cam) / 2.0]) * f.aim_scale
+                # 手在画面右侧 -> 向右转（方位角减小）；手在画面下方 -> 低头（俯仰角减小）
+                signs = np.array([self._pan_dir * rt.cfg.follow_pan_sign, self._tilt_dir * rt.cfg.follow_tilt_sign])
+                observed = np.clip(self._measured_offset_at(rt, hand.t) - err_deg * signs, lo, hi)
+                observed_t = hand.t
+        elif not yielding:
+            cue = self._cues.get(rt.arm.name)
+            if cue is not None and now - cue[1] <= self.cfg.fused.cue_max_age_s:
+                guided = True
+                if cue[1] > rt.aim_t:
+                    observed, observed_t = np.clip(cue[0], lo, hi), cue[1]
+
+        if observed is not None:
             if rt.aim is None:
                 rt.aim, rt.aim_vel = observed, np.zeros(2)
             else:
-                span = max(hand.t - rt.aim_t, 1e-3)
+                span = max(observed_t - rt.aim_t, 1e-3)
                 blended = rt.aim + f.smoothing * (observed - rt.aim)
                 vel = np.clip((blended - rt.aim) / span, -f.max_speed_deg_s, f.max_speed_deg_s)
                 rt.aim_vel = 0.5 * rt.aim_vel + 0.5 * vel
                 rt.aim = blended
-            rt.aim_t = hand.t
+            rt.aim_t = observed_t
             rt.lost_since = None
 
-        if hand is not None and rt.aim is not None:
+        if (hand is not None or guided) and rt.aim is not None:
             goal = rt.aim + rt.aim_vel * (now - rt.aim_t + f.lead_s)
             on_target = float(np.max(np.abs(goal - current))) < 1.0
-            rt.status = "已对准" if on_target else "跟随中"
+            if guided:
+                rt.status = "深度引导·已对准" if on_target else "深度引导"
+            else:
+                rt.status = "已对准" if on_target else "跟随中"
         elif yielding:
             goal, rt.aim = np.zeros(2), None
             rt.status = "让位·另一只臂在跟随"
@@ -682,7 +786,7 @@ class Controller:
                 goal, rt.aim = np.zeros(2), None
                 rt.status = "未见手，回初始位" if float(np.max(np.abs(current))) > 0.5 else "等待手出现"
 
-        returning = hand is None and (yielding or rt.aim is None)
+        returning = hand is None and not guided and (yielding or rt.aim is None)
         top = self.cfg.safety.home_speed_deg_s if returning else f.max_speed_deg_s
         rate = np.clip(f.gain * (np.clip(goal, lo, hi) - current), -top, top)
         rt.pan_off, rt.tilt_off = (float(v) for v in np.clip(current + rate * dt, lo, hi))
@@ -831,10 +935,13 @@ class Controller:
             cam.deadzone = self.cfg.follow.deadzone if active else 0.0
         cam = self.cameras.get(self.cfg.head_camera)
         if cam is not None:
-            # 腕部跟随用不到头部相机的检测，关掉省 CPU；待机和键盘模式保留，便于看检测效果
-            cam.detect_enabled = self.mode != "follow"
-            cam.overlay_active = self.mode == "fused" and self._fused_point is not None
-            cam.overlay_text = f"-> {self._fused_arm}" if cam.overlay_active else ""
+            # 腕部跟随本身用不到头部相机的检测；只有要自动标定外参时才保留
+            cam.detect_enabled = self.mode != "follow" or self.cfg.fused.auto_calibrate
+            guiding = self._fused_arm if self.cfg.fused.reach else (self._follow_arm if self._cues else None)
+            cam.overlay_active = self.mode == "fused" and guiding is not None and (
+                self._fused_point is not None or bool(self._cues)
+            )
+            cam.overlay_text = f"-> {guiding}" if cam.overlay_active else ""
 
     @staticmethod
     def _hand_info(hand) -> dict | None:
@@ -873,9 +980,10 @@ class Controller:
                     "calibrated": ext is not None,
                     "calib_rms_mm": None if ext is None else round(ext.rms * 1000, 1),
                     "calib_samples": self.calib_session.count(name),
-                    "fused_selected": (self.mode == "fused" and self._fused_arm == name
+                    "fused_selected": (self.mode == "fused" and self.cfg.fused.reach and self._fused_arm == name
                                        and self._fused_point is not None)
-                    or (self.mode == "follow" and self._follow_arm == name),
+                    or (self._pointing_mode() and self._follow_arm == name),
+                    "auto_samples": len(self.auto_samples[name]),
                     "view_quality": round(self._view_quality(rt), 2),
                 }
             cams = {

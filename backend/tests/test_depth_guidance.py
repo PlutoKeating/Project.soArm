@@ -119,3 +119,166 @@ def test_bearing_calibration_refuses_too_few_or_degenerate_samples():
         s.cam_point = np.array([s.cam_point[0], s.cam_point[1], 0.5])
     with pytest.raises(ValueError):
         solve_from_bearings(flat)
+
+
+# ---------------------------------------------------------------- 控制器级：指向式深度引导
+from soarm.calib import ArmExtrinsic  # noqa: E402
+from soarm.perception.hand import Hand  # noqa: E402
+from test_controller import DT, Rig  # noqa: E402
+
+
+class World:
+    """一只在空间里的手，被头部深度相机和两个腕部相机按真实几何成像。"""
+
+    def __init__(self, rig, T_left, T_right, calibrated=True):
+        self.rig, self.T = rig, {"left": T_left, "right": T_right}
+        self.hand_in = "left"  # 手的位置用哪只臂的基座系表示
+        self.point = None
+        self.wrist_blind = set()  # 这些臂的腕部相机“看不到”，用来测试纯深度引导
+        if calibrated:
+            for name, T in self.T.items():
+                rig.ctl.calibration.arms[name] = ArmExtrinsic(T, 0.01, 50)
+
+    def _in_base(self, name):
+        cam = np.linalg.inv(self.T[self.hand_in]) @ np.append(self.point, 1.0)
+        return (self.T[name] @ cam)[:3], cam[:3]
+
+    def step(self, seconds):
+        rig = self.rig
+        for _ in range(int(seconds / DT)):
+            rig.now += DT
+            for arm in rig.arms.values():
+                arm._last -= DT
+            head = rig.cams["head"]
+            if self.point is None:
+                head.hand = None
+            else:
+                _, cam_pt = self._in_base("left")
+                head.hand = Hand(0.5, 0.5, 0.2, 0.9, np.zeros((21, 2), np.float32), cam_pt, rig.now)
+            for name in ("left", "right"):
+                cam = rig.cams[f"wrist_{name}"]
+                cam.hand = None
+                if self.point is None or name in self.wrist_blind:
+                    continue
+                rt = rig.ctl.arms[name]
+                joints = {j: rt.pos[j] for j in ARM_JOINTS}
+                origin, forward, right, up = camera_axes(KIN, joints)
+                v = self._in_base(name)[0] - origin
+                depth = v @ forward
+                if depth <= 0.05:
+                    continue
+                half_w = np.tan(np.deg2rad(cam.cfg.hfov_deg) / 2)
+                aspect = cam.cfg.height / cam.cfg.width
+                cx = 0.5 + (v @ right) / depth / half_w / 2
+                cy = 0.5 - (v @ up) / depth / (half_w * aspect) / 2
+                if 0.0 <= cx <= 1.0 and 0.0 <= cy <= 1.0:
+                    cam.hand = Hand(cx, cy, 0.4, 0.9, np.zeros((21, 2), np.float32), None, rig.now)
+            rig.ctl._tick(DT, rig.now)
+
+    def pixel(self, name):
+        hand = self.rig.cams[f"wrist_{name}"].hand
+        return None if hand is None else (hand.cx, hand.cy)
+
+
+def _two_arm_extrinsics():
+    """两只臂的基座左右相距 0.4 米，相机在中间上方。"""
+    T_left = _true_extrinsic()
+    T_right = T_left.copy()
+    T_right[1, 3] += 0.40  # 同一台相机，在右臂基座系里更靠左
+    return T_left, T_right
+
+
+@pytest.fixture
+def world(tmp_path):
+    rig = Rig(tmp_path)
+    for cam in ("wrist_left", "wrist_right"):
+        rig.cams[cam].cfg.width, rig.cams[cam].cfg.height, rig.cams[cam].cfg.hfov_deg = 1280, 720, 90.0
+    rig.cfg.follow.aim_scale = 1.0
+    w = World(rig, *_two_arm_extrinsics())
+    rig.ctl.set_mode("fused")
+    rig.run(6.0)
+    assert rig.at_home("left") and rig.at_home("right")
+    return w
+
+
+def test_depth_cue_points_the_arm_at_a_hand_its_wrist_camera_cannot_see(world):
+    rig = world.rig
+    world.wrist_blind = {"left", "right"}  # 只有深度相机看得到
+    world.hand_in, world.point = "left", np.array([0.55, 0.30, 0.30])  # 左臂的左前方
+    world.step(3.0)
+    assert rig.ctl._follow_arm == "left"
+    assert "深度引导" in rig.ctl.arms["left"].status
+    # 腕部相机光轴已经对准了手：把“看不到”去掉后，手应落在画面中心附近
+    world.wrist_blind = set()
+    world.step(DT)
+    cx, cy = world.pixel("left")
+    assert abs(cx - 0.5) < 0.08 and abs(cy - 0.5) < 0.10
+    assert rig.at_home("right")  # 另一只臂不动
+
+
+def test_depth_cue_picks_the_arm_that_needs_less_turning(world):
+    rig = world.rig
+    world.wrist_blind = {"left", "right"}
+    world.hand_in, world.point = "right", np.array([0.55, -0.25, 0.25])  # 右臂的右前方
+    world.step(3.0)
+    assert rig.ctl._follow_arm == "right"
+    assert rig.at_home("left")
+
+
+def test_wrist_camera_takes_over_once_it_sees_the_hand(world):
+    rig = world.rig
+    world.hand_in, world.point = "left", np.array([0.55, 0.30, 0.30])
+    world.step(3.0)
+    assert rig.ctl._follow_arm == "left"
+    assert rig.ctl.arms["left"].status in ("跟随中", "已对准")  # 不再是“深度引导”
+    cx, cy = world.pixel("left")
+    assert abs(cx - 0.5) < 0.08 and abs(cy - 0.5) < 0.10
+
+
+def test_arms_return_home_when_hand_disappears(world):
+    rig = world.rig
+    world.hand_in, world.point = "left", np.array([0.55, 0.30, 0.30])
+    world.step(3.0)
+    world.point = None
+    world.step(8.0)
+    assert rig.at_home("left") and rig.at_home("right")
+
+
+def test_uncalibrated_arm_gets_no_depth_cue(tmp_path):
+    rig = Rig(tmp_path)
+    w = World(rig, *_two_arm_extrinsics(), calibrated=False)
+    rig.ctl.set_mode("fused")
+    rig.run(6.0)
+    w.wrist_blind = {"left", "right"}
+    w.hand_in, w.point = "left", np.array([0.55, 0.30, 0.30])
+    w.step(2.0)
+    assert rig.ctl._follow_arm is None and rig.at_home("left")
+
+
+def test_auto_calibration_collects_pairs_while_tracking_and_recovers_extrinsic(tmp_path):
+    """没有外参时，只靠腕部跟随过程中自动积累的配对样本求出外参。"""
+    rig = Rig(tmp_path)
+    for cam in ("wrist_left", "wrist_right"):
+        rig.cams[cam].cfg.width, rig.cams[cam].cfg.height, rig.cams[cam].cfg.hfov_deg = 1280, 720, 90.0
+    rig.cfg.follow.aim_scale = 1.0
+    T_left, T_right = _two_arm_extrinsics()
+    w = World(rig, T_left, T_right, calibrated=False)
+    rig.ctl.set_mode("follow")  # 普通的腕部跟随模式下也在采集
+    rig.run(6.0)
+    rng = np.random.default_rng(4)
+    w.hand_in = "left"
+    w.wrist_blind = {"right"}  # 这里只考察左臂；否则手移到中间时右臂也可能拿到跟随权
+    for _ in range(45):  # 手在左臂前方慢慢换位置
+        w.point = np.array([rng.uniform(0.40, 0.75), rng.uniform(-0.05, 0.30), rng.uniform(0.10, 0.40)])
+        w.step(1.2)
+    assert rig.ctl._follow_arm == "left"
+    n = len(rig.ctl.auto_samples["left"])
+    assert n >= 20
+    assert len(rig.ctl.auto_samples["right"]) == 0
+    result = rig.ctl.calib_auto_solve("left")
+    solved = rig.ctl.calibration.arms["left"].T_base_cam
+    assert result["rms"] < 0.02
+    assert np.allclose(solved[:3, 3], T_left[:3, 3], atol=0.03)
+    assert (tmp_path / "extrinsics.yaml").exists()
+    with pytest.raises(ValueError):
+        rig.ctl.calib_auto_solve("right")

@@ -125,6 +125,19 @@ class FollowConfig:
 class FusedConfig:
     """第 3 步：深度相机全局引导 + 腕部精调。"""
 
+    # false（默认）：指向式引导。深度相机发现手后，把合适的那只臂的腕部相机转过去对准，
+    #   手进入腕部视野后交给腕部跟随。只转动，不伸缩。
+    # true：伸出式引导。夹爪伸向手并保持 standoff 的距离，腕部相机做小角度精调。
+    #   需要更准的外参，且尚未在真机上验证。
+    reach: bool = False
+    cue_max_age_s: float = 0.3  # 深度相机的观测超过这么久就不再用来引导
+    cue_switch_margin_deg: float = 10.0  # 另一只臂要省这么多转角才值得换臂
+    # 外参自动标定：腕部相机和深度相机同时看到同一只手时自动积累配对样本
+    auto_calibrate: bool = True
+    auto_calib_center: float = 0.35  # 只采用手在腕部画面中部（半幅的这个比例以内）的观测
+    auto_calib_spacing: float = 0.03  # 相邻样本里手的位置至少相距这么远（米）
+    auto_calib_max_samples: int = 600
+
     standoff: float = 0.25  # 夹爪参考点与手保持的距离（米）
     min_reach: float = 0.22  # 手逼近时夹爪最多缩回到离肩部这么近
     max_reach: float = 0.35  # 夹爪参考点离肩部的最大距离

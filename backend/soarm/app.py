@@ -166,6 +166,15 @@ def create_app(cfg: Config) -> FastAPI:
     def post_calib_solve(body: ArmBody):
         return command(controller.calib_solve, body.arm)
 
+    @app.post("/api/calib/auto/solve")
+    def post_calib_auto_solve(body: ArmBody):
+        return command(controller.calib_auto_solve, body.arm)
+
+    @app.post("/api/calib/auto/clear")
+    def post_calib_auto_clear(body: ArmBody):
+        controller.calib_auto_clear(body.arm)
+        return {"ok": True}
+
     @app.get("/stream/{name}")
     async def stream(name: str):
         cam = controller.cameras.get(name)
