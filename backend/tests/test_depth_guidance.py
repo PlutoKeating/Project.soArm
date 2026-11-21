@@ -515,3 +515,50 @@ def test_body_calibration_with_known_yaw_is_stable_when_arm_only_appears_in_a_sm
     half_b, _, _ = solve_from_body(obs[1::2], up, yaw_deg=0.0)
     assert np.linalg.norm(half_a[:3, 3] - half_b[:3, 3]) < 0.02
     assert np.allclose(full[:3, 3], T[:3, 3], atol=0.03)
+
+
+def test_refine_from_bearings_improves_a_coarse_extrinsic_and_ignores_wrong_hands():
+    from soarm.calib import refine_from_bearings
+
+    T = _true_extrinsic()
+    up = _up_in_cam(T)
+    coarse = T.copy()
+    coarse[:3, 3] += [0.04, -0.05, 0.02]  # 粗外参偏了约 7 厘米
+    samples = _samples(T, n=60, noise_px=0.015, noise_m=0.008, seed=8)
+    rng = np.random.default_rng(2)
+    for s_ in samples[:12]:  # 五分之一其实是别人的手
+        s_.cam_point = s_.cam_point + rng.uniform(-0.5, 0.5, 3) + [0.4, 0, 0]
+    refined, rms_deg, used = refine_from_bearings(samples, coarse, up)
+    assert used <= 52  # 明显矛盾的配对被筛掉
+    assert np.linalg.norm(refined[:3, 3] - T[:3, 3]) < 0.025 < np.linalg.norm(coarse[:3, 3] - T[:3, 3])
+    assert rms_deg < 4.0
+    assert np.allclose(refined[:3, :3] @ up, [0, 0, 1], atol=1e-6)  # 俯仰横滚没被改动
+
+
+def test_refine_from_bearings_refuses_too_few_consistent_pairs_or_a_big_jump():
+    from soarm.calib import refine_from_bearings
+
+    T = _true_extrinsic()
+    up = _up_in_cam(T)
+    with pytest.raises(ValueError, match="至少需要"):
+        refine_from_bearings(_samples(T, n=6), T, up)
+    far = T.copy()
+    far[:3, 3] += [0.0, 0.0, 0.0]
+    shifted = _samples(T, n=40, seed=3)
+    for s_ in shifted:  # 所有配对一致地指向另一个地方：会把相机拽走很远，应拒绝
+        s_.cam_point = s_.cam_point + [0.0, 0.0, 0.0]
+        s_.origin = s_.origin + np.array([0.0, 0.30, 0.0])
+    with pytest.raises(ValueError):
+        refine_from_bearings(shifted, far, up)
+
+
+def test_auto_samples_survive_a_restart(tmp_path):
+    rig = Rig(tmp_path)
+    sample = BearingSample(np.array([0.1, 0.0, 0.2]), np.array([1.0, 0.0, 0.0]), np.array([0.0, 0.1, 0.5]))
+    rig.ctl.auto_samples["left"].append(sample)
+    rig.ctl._append_auto_sample("left", sample)
+    again = Rig(tmp_path)
+    assert len(again.ctl.auto_samples["left"]) == 1
+    assert np.allclose(again.ctl.auto_samples["left"][0].cam_point, sample.cam_point)
+    again.ctl.calib_auto_clear("left")
+    assert Rig(tmp_path).ctl.auto_samples["left"] == []

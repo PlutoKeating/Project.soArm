@@ -319,7 +319,10 @@ function bindButtons() {
   });
   $("#auto-solve").addEventListener("click", async () => {
     const res = await post("/api/calib/auto/solve", { arm: calibArm() });
-    if (res) $("#calib-result").textContent = `已保存：采用 ${res.samples} / ${res.collected} 对，偏差 ${(res.rms * 1000).toFixed(0)} mm`;
+    if (!res) return;
+    $("#calib-result").textContent = res.method === "refine"
+      ? `已精修并保存：采用 ${res.samples} / ${res.collected} 对，视线偏差 ${res.rms_deg.toFixed(1)}°，相机位置调整 ${(res.moved_m * 100).toFixed(1)} cm`
+      : `已保存：采用 ${res.samples} / ${res.collected} 对，偏差 ${(res.rms * 1000).toFixed(0)} mm`;
   });
   $("#auto-clear").addEventListener("click", () => post("/api/calib/auto/clear", { arm: calibArm() }));
   $("#head-preset").addEventListener("click", () => post("/api/head/preset"));

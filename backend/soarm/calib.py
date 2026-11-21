@@ -143,6 +143,71 @@ def solve_from_bearings(samples: list[BearingSample]) -> tuple[np.ndarray, float
     return T, float(np.sqrt((dist**2).mean())), len(pts)
 
 
+def refine_from_bearings(
+    samples: list[BearingSample],
+    T_init: np.ndarray,
+    up_cam: np.ndarray,
+    gate_deg: float = 25.0,
+) -> tuple[np.ndarray, float, int]:
+    """用“视线 + 3D 点”配对在已有外参的基础上精修。返回 (4x4 变换, 手偏离视线的 RMS 角度/度, 采用的样本数)。
+
+    与从零求解不同：俯仰和横滚仍由地面法线 up_cam 定死，只调绕竖直轴的转角和平移；
+    并且先用现有外参筛一遍，手的位置偏离腕部视线超过 gate_deg 的配对直接不要
+    （展会上两台相机经常看到的不是同一只手）。
+    """
+    origins = np.array([s.origin for s in samples], float)
+    dirs = np.array([s.direction for s in samples], float)
+    pts = np.array([s.cam_point for s in samples], float)
+
+    def angles(R, t):
+        v = pts @ R.T + t - origins
+        cosang = np.einsum("ij,ij->i", v, dirs) / np.maximum(np.linalg.norm(v, axis=1), 1e-6)
+        return np.degrees(np.arccos(np.clip(cosang, -1.0, 1.0)))
+
+    keep = angles(T_init[:3, :3], T_init[:3, 3]) <= gate_deg
+    if int(keep.sum()) < MIN_BEARING_SAMPLES:
+        raise ValueError(f"与现有外参相符的配对只有 {int(keep.sum())} 个，至少需要 {MIN_BEARING_SAMPLES} 个")
+    o, d, p = origins[keep], dirs[keep], pts[keep]
+    if np.linalg.matrix_rank(p - p.mean(axis=0), tol=0.02) < 3:
+        raise ValueError("样本里手的位置几乎都在一个平面或一条线上，请在不同远近、高低、左右多移动一些")
+
+    def residuals(params):
+        R = _rotation_from_up(up_cam, params[0])
+        v = p @ R.T + params[1:] - o
+        along = np.einsum("ij,ij->i", v, d)
+        perp = v - along[:, None] * d
+        return (perp / np.maximum(np.linalg.norm(v, axis=1), 0.05)[:, None]).ravel()
+
+    params = np.array([np.arctan2(T_init[1, 2], T_init[0, 2]), *T_init[:3, 3]])
+    res = residuals(params)
+    cost, lam = float(res @ res), 1e-3
+    for _ in range(60):
+        J = np.empty((res.size, 4))
+        for i in range(4):
+            step = np.zeros(4)
+            step[i] = 1e-5
+            J[:, i] = (residuals(params + step) - res) / 1e-5
+        delta = np.linalg.solve(J.T @ J + lam * np.eye(4), -J.T @ res)
+        trial = residuals(params + delta)
+        if float(trial @ trial) < cost:
+            params, res, cost, lam = params + delta, trial, float(trial @ trial), max(lam / 3, 1e-9)
+            if float(np.linalg.norm(delta)) < 1e-9:
+                break
+        else:
+            lam *= 5
+    T = np.eye(4)
+    T[:3, :3], T[:3, 3] = _rotation_from_up(up_cam, params[0]), params[1:]
+    # 精修不应该把相机挪走很远：挪得多说明样本有问题，不采用
+    if np.linalg.norm(T[:3, 3] - T_init[:3, 3]) > 0.15:
+        raise ValueError(
+            f"精修后相机位置移动了 {np.linalg.norm(T[:3, 3] - T_init[:3, 3]) * 100:.0f} 厘米，超出合理范围，不采用"
+        )
+    v = p @ T[:3, :3].T + T[:3, 3] - o
+    cosang = np.einsum("ij,ij->i", v, d) / np.maximum(np.linalg.norm(v, axis=1), 1e-6)
+    rms = float(np.sqrt((np.degrees(np.arccos(np.clip(cosang, -1.0, 1.0))) ** 2).mean()))
+    return T, rms, int(keep.sum())
+
+
 @dataclass
 class BodyObservation:
     """机械臂摆在某个姿态时，深度相机看到的属于手臂的点。"""

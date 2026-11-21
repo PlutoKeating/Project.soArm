@@ -25,6 +25,7 @@ from ..calib import (
     Calibration,
     CalibSession,
     fit_floor_normal,
+    refine_from_bearings,
     solve_from_bearings,
 )
 from ..config import ArmConfig, Config
@@ -148,7 +149,7 @@ class Controller:
         self.guidance_hits: deque = deque(maxlen=200)
         self._was_guided: dict[str, float] = {}  # 臂名 -> 最近一次处于深度引导的时刻
         # 外参自动标定积累的配对样本
-        self.auto_samples: dict[str, list[BearingSample]] = {name: [] for name in arms}
+        self.auto_samples: dict[str, list[BearingSample]] = {name: self._load_auto_samples(name) for name in arms}
 
         self.home = dict(cfg.home)
         # 肩部参考点：shoulder_lift 关节大致所在位置，用作“伸出距离”的原点
@@ -819,23 +820,70 @@ class Controller:
             self.kin, {j: rt.pos[j] for j in ARM_JOINTS}, wrist_hand.cx, wrist_hand.cy,
             cam.cfg.hfov_deg, self._aspect(cam),
         )
-        samples.append(BearingSample(origin, direction, np.array(head_hand.xyz, float)))
+        sample = BearingSample(origin, direction, np.array(head_hand.xyz, float))
+        samples.append(sample)
         if len(samples) > fc.auto_calib_max_samples:
             del samples[0]
+        self._append_auto_sample(name, sample)
+
+    def _auto_samples_path(self, name: str):
+        return self.cfg.path(self.cfg.calibration_dir) / f"auto_samples_{name}.jsonl"
+
+    def _append_auto_sample(self, name: str, sample: BearingSample) -> None:
+        """样本落盘：展会上一对样本来之不易，进程重启不能丢。"""
+        import json
+
+        try:
+            path = self._auto_samples_path(name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "origin": sample.origin.tolist(), "direction": sample.direction.tolist(),
+                    "cam_point": sample.cam_point.tolist(), "time": time.time(),
+                }) + "\n")
+        except OSError as e:
+            logger.warning("自动标定样本落盘失败: %s", e)
+
+    def _load_auto_samples(self, name: str) -> list[BearingSample]:
+        import json
+
+        path = self._auto_samples_path(name)
+        if not path.exists():
+            return []
+        out = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                r = json.loads(line)
+                out.append(BearingSample(np.array(r["origin"]), np.array(r["direction"]), np.array(r["cam_point"])))
+            except (ValueError, KeyError):
+                continue
+        return out[-self.cfg.fused.auto_calib_max_samples :]
 
     def calib_auto_solve(self, arm: str) -> dict:
         """用自动积累的样本求解该臂的外参并保存。"""
         with self._lock:
-            T, rms, used = solve_from_bearings(self.auto_samples[arm])
+            samples = self.auto_samples[arm]
+            existing = self.calibration.arms.get(arm)
+            if existing is not None and existing.up_cam is not None:
+                # 已有带地面法线的外参：在它的基础上精修，只动转角和平移
+                up = self._floor_up if self._floor_up is not None else existing.up_cam
+                T, rms_deg, used = refine_from_bearings(samples, existing.at(up), up)
+                moved = float(np.linalg.norm(T[:3, 3] - existing.T_base_cam[:3, 3]))
+                self.calibration.arms[arm] = ArmExtrinsic(T, existing.rms, used, up)
+                self.calibration.save(self.calib_path)
+                return {"arm": arm, "rms_deg": rms_deg, "samples": used, "collected": len(samples),
+                        "moved_m": moved, "method": "refine"}
+            T, rms, used = solve_from_bearings(samples)
             self.calibration.arms[arm] = ArmExtrinsic(T, rms, used)
             if self.head_pos:
                 self.calibration.head_preset = dict(self.head_pos)
             self.calibration.save(self.calib_path)
-            return {"arm": arm, "rms": rms, "samples": used, "collected": len(self.auto_samples[arm])}
+            return {"arm": arm, "rms": rms, "samples": used, "collected": len(samples), "method": "solve"}
 
     def calib_auto_clear(self, arm: str) -> None:
         with self._lock:
             self.auto_samples[arm] = []
+            self._auto_samples_path(arm).unlink(missing_ok=True)
 
     def _follow(self, rt: ArmRuntime, dt: float, now: float) -> dict[str, float]:
         """瞄准式跟随：每来一帧观测，就算出“手在哪个方向”，直接把目标对准那里。
