@@ -45,7 +45,7 @@ const REPO = "https://github.com/PlutoKeating/Project.soArm";
       </div>
       <div class="rail-wrap" id="rail">
         <Rail current={here?.path ?? ""} />
-        <p class="side-foot"><a href={REPO}>GitHub 仓库</a></p>
+        <p class="side-foot">由 PlutoKeating 开发于 2026 年 11 月 21 日<br /><a href={REPO}>GitHub 仓库</a></p>
       </div>
     </header>
 
@@ -64,6 +64,7 @@ const REPO = "https://github.com/PlutoKeating/Project.soArm";
         {prev ? <a class="prev" href={base + prev.path}><small>上一站</small><span>{prev.name}</span></a> : <span />}
         {next ? <a class="next" href={base + next.path}><small>下一站</small><span>{next.name}</span></a> : <span />}
       </nav>
+      <footer class="credit">本项目由 PlutoKeating 开发于 2026 年 11 月 21 日，以 MIT 许可开源。</footer>
     </main>
 
     <script is:inline>

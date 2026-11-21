@@ -26,6 +26,7 @@ src/components/Notice.astro    通告（机械臂会动 / 注意 / 说明 / 尚�
 src/components/Mark.astro      验证状态的记号
 src/components/RouteTable.astro  首页的线路表
 src/components/KitFigure.astro   套机俯视示意图
+src/components/figures/    各站的示意图与示意动画（见下）
 src/pages/*.mdx            每一站一个文件
 src/styles/global.css      全部样式和色板
 public/                    原样拷贝的静态文件
@@ -39,6 +40,29 @@ wrangler.jsonc             Cloudflare Workers 的部署配置
 - **提示**：`<Notice kind="moves">`（机械臂会动）、`caution`、`info`、`unverified`。凡是会让硬件动的步骤，前面都放一个 `moves`。
 - 内容以仓库根目录的 `README.md` 和 `docs/` 为准。命令或流程变了，两边一起改。
 - 没在真机上验证过的东西用 `unverified` 标出来，不要写成已经验证。
+
+## 示意图
+
+示意图都是手写的 SVG 组件，放在 `src/components/figures/`，在页面里像普通组件一样引用：
+
+| 组件 | 画的是什么 | 用在 | 动画 |
+|---|---|---|---|
+| `ArmJoints` | 一只臂上 6 个舵机的位置与 ID | 接线与上电 | 无 |
+| `Wiring` | 六个设备各接哪、哪根是电源 | 接线与上电 | 无 |
+| `HeadTilt` | 云台在工作刻度与标定刻度之间点头 | 本机配置、外参标定 | 相机来回点头 |
+| `LeftRight` | 左臂右臂怎么分 | 首次启动 | 无 |
+| `Poses` | 休息位与初始位 | 首次启动 | 手臂展开、收回 |
+| `Follow` | 腕部跟随与中柱避让 | 首次启动 | 手移动、臂跟随并停在 30° |
+| `Guide` | 深度引导的三步 | 总览、首次启动 | 三步依次点亮 |
+| `LendRestore` | 借臂与恢复的三个状态 | 路演值守 | 无 |
+
+`ArmSide` 是侧视机械臂的基础组件，`Hand` 是人手的小图形。画新图时遵守这几条：
+
+- **尺寸与实物一致**：侧视图的连杆位置取自 `backend/soarm/kinematics.py` 在零位下的骨架，姿态用三个关节的嵌套旋转摆出来，传入的就是配置里的关节角。相机位置取自一号套机的外参。不要凭印象画。
+- **图里少放字**：画布宽度不超过 480，图里只留必要的短标签，说明写在图下方的 `.fg-key` 图例里，手机上才看得清。
+- **颜色有固定含义**：墨色是机械臂，红色是腕部相机，蓝色是深度相机，琥珀色是人的手和电源。样式用 `global.css` 里 `fg-` 开头的类。
+- **动画在两个状态之间来回**，两头各停一会儿；`prefers-reduced-motion` 下不播放，停在终态，所以终态本身要能说明问题。
+- 每张图都要有 `<title>` 和 `<desc>`，把图的意思用文字说一遍。
 
 ## 部署到 Cloudflare Workers
 

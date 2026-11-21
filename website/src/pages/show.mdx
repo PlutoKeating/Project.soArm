@@ -4,6 +4,7 @@ title: 路演值守
 description: 现场随时有人来。让演示常驻运行，来人了几秒内恢复，没人时可以腾出一只臂做试验，人要离开时有看门狗盯着。
 ---
 import Notice from "../components/Notice.astro";
+import LendRestore from "../components/figures/LendRestore.astro";
 
 <Notice kind="info" title="来人了，先执行这一条">
 
@@ -46,6 +47,8 @@ scripts/lab.sh restore
 ```bash
 scripts/lab.sh lend right
 ```
+
+<LendRestore />
 
 它先等所有在展示的臂连续 8 秒没在跟手，再让生产停止指挥右臂并松开串口；舵机力矩不变，臂停在原位，左臂照常展示。网页顶部会出现黄色提示条，写明哪只臂没有参与展示。120 秒内一直有人在互动就放弃。
 

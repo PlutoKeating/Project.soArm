@@ -1,0 +1,48 @@
+---
+// 腕部跟随的俯视图：以左臂为例。肩部旋转的正方向是向右转，朝中间（立柱一侧）最多转 30°。
+import Hand from "./Hand.astro";
+const bx = 170, by = 268, len = 128; // 基座位置，手臂在俯视图里的长度（约 26 cm，5 px/cm）
+---
+<figure class="fg">
+  <svg viewBox="0 0 480 310" role="img" aria-labelledby="follow-t follow-d">
+    <title id="follow-t">腕部跟随与中柱避让</title>
+    <desc id="follow-d">俯视图。手在机械臂前方左右移动，机械臂绕基座转动，让腕部相机一直对着手。手移到靠近中间立柱的一侧时，机械臂转到 30 度就停下，不会碰到立柱。</desc>
+    <path class="fg-lead" stroke-dasharray="4 4" d={`M${bx} ${by} L${bx + 230 * Math.sin(Math.PI / 6)} ${by - 230 * Math.cos(Math.PI / 6)}`} />
+    <text class="fg-t fg-s" x="300" y="58">朝中间最多 30°</text>
+    <rect class="fg-dcam" x="254" y="170" width="36" height="18" rx="4" /><path class="fg-pole" d="M272 196 V230" />
+    <text class="fg-t fg-s" x="300" y="218">相机立柱</text>
+    <g class="arm">
+      <path class="fg-view-w" d={`M${bx} ${by - len} l-74 -74 h148 Z`} />
+      <path class="fg-link" d={`M${bx} ${by} V${by - len}`} />
+      <circle class="fg-wcam" cx={bx} cy={by - len} r="9" />
+    </g>
+    <g class="hand"><Hand x={bx} y={by - len - 58} /></g>
+    <rect class="fg-base" x={bx - 24} y={by - 18} width="48" height="48" rx="6" />
+    <text class="fg-t fg-b" x={bx - 36} y={by + 12} text-anchor="end">左臂</text>
+  </svg>
+  <ul class="fg-key">
+    <li><i style="background:var(--amber)"></i><span>手往哪边移，机械臂就往哪边转，腕部相机一直对着手。只转动，不伸手去够。</span></li>
+    <li><i style="background:var(--scarlet)"></i><span>红色扇形是腕部相机的视野。手拿开约 1.5 秒后，机械臂回到正前方。</span></li>
+    <li><i style="background:var(--cobalt)"></i><span>朝中间转到 30° 就停下，离相机立柱留有距离。右臂与之对称。</span></li>
+  </ul>
+  <figcaption>俯视图，以左臂为例。</figcaption>
+</figure>
+<style>
+  .arm, .hand { transform-box: view-box; transform-origin: 170px 268px; transform: rotate(30deg); }
+  .hand { transform: rotate(44deg); }
+  @media (prefers-reduced-motion: no-preference) {
+    .arm { animation: follow-arm 8s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+    .hand { animation: follow-hand 8s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+  }
+  /* 手先动，机械臂跟上；手越过 30° 的界线后，机械臂停在界线上 */
+  @keyframes follow-hand {
+    0%, 8% { transform: rotate(-42deg); }
+    45%, 62% { transform: rotate(44deg); }
+    100% { transform: rotate(-42deg); }
+  }
+  @keyframes follow-arm {
+    0%, 12% { transform: rotate(-42deg); }
+    44%, 66% { transform: rotate(30deg); }
+    100% { transform: rotate(-42deg); }
+  }
+</style>

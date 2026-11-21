@@ -1,0 +1,39 @@
+---
+const dev = [
+  { a: "左臂", b: "控制板", kind: "board" }, { a: "右臂", b: "控制板", kind: "board" }, { a: "云台", b: "控制板", kind: "board" },
+  { a: "左腕", b: "相机", kind: "cam" }, { a: "右腕", b: "相机", kind: "cam" }, { a: "深度", b: "相机", kind: "depth" },
+];
+const w = 68, gap = 10, x0 = 11, top = 96, h = 62;
+const cx = (i: number) => x0 + i * (w + gap) + w / 2;
+const pcTop = 262;
+const port = (i: number) => 150 + i * 36; // 电脑上的 6 个口
+---
+<figure class="fg">
+  <svg viewBox="0 0 480 330" role="img" aria-labelledby="wire-t wire-d">
+    <title id="wire-t">接线示意图</title>
+    <desc id="wire-d">三块控制板各有两根线：一根 USB 接电脑，一根 DC 口接舵机电源。两个腕部相机接电脑的 USB 2 口，深度相机接 USB 3 口。电脑上一共占用六个 USB 口。</desc>
+    <rect class="fg-box" x="20" y="14" width="232" height="34" rx="6" style="fill:var(--amber)" />
+    <text class="fg-t fg-b" x="136" y="37" text-anchor="middle">舵机电源，每块板一路</text>
+    {dev.map((d, i) => (
+      <g>
+        {d.kind === "board" && <path class="fg-wire fg-power" d={`M${cx(i)} 48 V${top}`} />}
+        <path class:list={["fg-wire", { "fg-usb3": d.kind === "depth" }]} d={`M${cx(i)} ${top + h} V${200 + (i < 3 ? i : 5 - i) * 12} H${port(i)} V${pcTop}`} />
+        <rect class="fg-box" x={cx(i) - w / 2} y={top} width={w} height={h} rx="6"
+          style={d.kind === "cam" ? "stroke:var(--scarlet)" : d.kind === "depth" ? "stroke:var(--cobalt)" : ""} />
+        <text class="fg-t fg-b" x={cx(i)} y={top + 27} text-anchor="middle">{d.a}</text>
+        <text class="fg-t fg-s" x={cx(i)} y={top + 48} text-anchor="middle">{d.b}</text>
+      </g>
+    ))}
+    <rect class="fg-base" x="120" y={pcTop} width="240" height="54" rx="8" />
+    <text class="fg-t fg-b fg-on" x="240" y={pcTop + 34} text-anchor="middle">电脑</text>
+  </svg>
+  <ul class="fg-key">
+    <li><i style="background:var(--amber)"></i><span>琥珀色：舵机电源，接控制板的 DC 口。只插 USB 时舵机不应答。</span></li>
+    <li><i style="background:var(--ink)"></i><span>黑色：USB。三块控制板和两个腕部相机接任意口。</span></li>
+    <li><i style="background:var(--cobalt)"></i><span>蓝色：深度相机，必须接 USB 3 口。</span></li>
+  </ul>
+  <figcaption>电脑上一共占用 6 个 USB 口，口不够时用带供电的集线器。</figcaption>
+</figure>
+<style>
+  .fg-usb3 { stroke: var(--cobalt); stroke-width: 4; }
+</style>

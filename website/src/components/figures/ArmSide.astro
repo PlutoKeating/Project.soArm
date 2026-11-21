@@ -1,0 +1,32 @@
+---
+// 机械臂侧视图。连杆位置取自项目自己的运动学（backend/soarm/kinematics.py 在零位下的骨架，厘米），
+// 三个关节用嵌套旋转摆出姿态，所以画出来的姿态与真机一致。
+// pose / from：肩部俯仰、肘部、腕部俯仰的角度（度）。给了 from 就在 from 与 pose 之间来回摆动。
+interface Pose { lift: number; elbow: number; wrist: number }
+interface Props { x: number; y: number; s?: number; pose: Pose; from?: Pose; camera?: boolean; ghost?: boolean }
+const { x, y, s = 8, pose, from, camera = true, ghost = false } = Astro.props;
+// 零位骨架 (前, 上)：肩部旋转轴、肩部俯仰轴、肘、腕部俯仰、腕部旋转、夹爪尖
+const Z = [[3.9, 6.2], [6.9, 11.7], [9.7, 22.9], [23.2, 23.4], [29.3, 23.4], [39.1, 22.6]];
+const P = Z.map(([f, u]) => [x + f * s, y - u * s]);
+const joint = (i: number, to: number, fr?: number) =>
+  `transform-origin:${P[i][0]}px ${P[i][1]}px;--to:${to}deg;--from:${fr ?? to}deg`;
+const moving = !!from;
+---
+<g class:list={["fg-arm", { "fg-ghost": ghost, "fg-moving": moving }]}>
+  <path class="fg-base" d={`M${x - 3.2 * s} ${y} v${-5.4 * s} h${9.6 * s} v${5.4 * s} Z`} />
+  <path class="fg-link" d={`M${P[0][0]} ${P[0][1]} L${P[1][0]} ${P[1][1]}`} />
+  <g class="fg-j" style={joint(1, pose.lift, from?.lift)}>
+    <path class="fg-link" d={`M${P[1][0]} ${P[1][1]} L${P[2][0]} ${P[2][1]}`} />
+    <g class="fg-j" style={joint(2, pose.elbow, from?.elbow)}>
+      <path class="fg-link" d={`M${P[2][0]} ${P[2][1]} L${P[3][0]} ${P[3][1]}`} />
+      <g class="fg-j" style={joint(3, pose.wrist, from?.wrist)}>
+        <path class="fg-link" d={`M${P[3][0]} ${P[3][1]} L${P[4][0]} ${P[4][1]}`} />
+        <path class="fg-grip" d={`M${P[4][0]} ${P[4][1] - 1.6 * s} L${P[5][0]} ${P[5][1] - 0.5 * s} L${P[5][0]} ${P[5][1] + 0.5 * s} L${P[4][0]} ${P[4][1] + 1.6 * s} Z`} />
+        {camera && <rect class="fg-wcam" x={P[4][0] - 0.6 * s} y={P[4][1] - 4.4 * s} width={3.4 * s} height={2.4 * s} rx={3} />}
+        <circle class="fg-joint" cx={P[3][0]} cy={P[3][1]} r={0.85 * s} />
+      </g>
+      <circle class="fg-joint" cx={P[2][0]} cy={P[2][1]} r={0.85 * s} />
+    </g>
+    <circle class="fg-joint" cx={P[1][0]} cy={P[1][1]} r={0.85 * s} />
+  </g>
+</g>
