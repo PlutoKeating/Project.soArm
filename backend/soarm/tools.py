@@ -355,11 +355,11 @@ def cmd_solve_calib(args: argparse.Namespace) -> int:
     return 0 if solved else 1
 
 
-# 手眼标定时让手臂往前上方伸到深度相机下面的姿态：(肩部俯仰, 肘部, 腕部俯仰)。
-# 实测相机悬在夹爪初始位的上空偏前，手臂要伸到接近最远才进得了画面
-_BODY_SHAPES = [(-20, 10, 0), (-10, 0, -10), (-25, 25, -15), (0, -10, -10), (-30, 15, 5), (-5, 10, -15)]
-# 肩部旋转相对“正前方”的偏角，正值表示朝外侧（远离中柱）。相机在两臂中间，所以偏向内侧
-_BODY_PANS_OUTWARD = [-25, -10, 5, 20]
+# 手眼标定时让手臂往前上方伸到深度相机下面的姿态：(肩部俯仰, 肘部, 腕部俯仰)
+_BODY_SHAPES = [(-20, 10, 0), (-10, 0, -10), (-25, 25, -15), (0, -10, -10), (-30, 15, 5), (-40, 20, -5)]
+# 肩部旋转相对“正前方”的偏角，负值表示朝内侧（朝中柱）。实测相机视野只覆盖两臂中间，
+# 手臂要朝内转 12° 以上才进画面；上限受 30° 的中柱避让限位约束
+_BODY_PANS_OUTWARD = [-28, -23, -18, -13]
 
 
 def cmd_body_calib(args: argparse.Namespace) -> int:
@@ -426,9 +426,9 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
         _, background = depth_median(12)
         outward = 1.0 if rt.cfg.inward_y_sign > 0 else -1.0  # 右臂朝外是 +pan（向右），左臂相反
         poses = []
-        for i, pan in enumerate(_BODY_PANS_OUTWARD):
-            for lift, elbow, wf in (_BODY_SHAPES[i % len(_BODY_SHAPES)], _BODY_SHAPES[(i + 3) % len(_BODY_SHAPES)],
-                                    _BODY_SHAPES[(i + 1) % len(_BODY_SHAPES)]):
+        for k in range(len(_BODY_SHAPES)):  # 先让每个转角都出现一遍，再换形状，这样提前中断时数据也均匀
+            for i, pan in enumerate(_BODY_PANS_OUTWARD):
+                lift, elbow, wf = _BODY_SHAPES[(i + k) % len(_BODY_SHAPES)]
                 poses.append({"shoulder_pan": outward * pan, "shoulder_lift": lift, "elbow_flex": elbow,
                               "wrist_flex": wf, "wrist_roll": rt.home["wrist_roll"], "gripper": 0.0})
         poses = poses[: args.poses]
@@ -553,7 +553,7 @@ def main() -> None:
     p = sub.add_parser("body-calib", help="用机械臂自身做手眼标定（不需要人手）")
     p.add_argument("arm")
     p.add_argument("--pitch", type=float, required=True, help="深度相机低头的角度（度），由地面测得")
-    p.add_argument("--poses", type=int, default=12)
+    p.add_argument("--poses", type=int, default=16)
     p.add_argument("--dry-run", action="store_true", help="只采集和求解，不保存外参")
     p.set_defaults(func=cmd_body_calib)
 

@@ -396,6 +396,6 @@ def test_verify_body_confirms_a_correct_extrinsic_and_rejects_a_shifted_one():
     inside, confirmed = verify_body(T, skeletons, depths, (fx, fy, cx, cy))
     assert inside > 0.3 and confirmed > 0.9
     shifted = T.copy()
-    shifted[:3, 3] += [0.0, 0.12, 0.0]
+    shifted[:3, 3] += [0.0, 0.20, 0.0]  # 偏了 20 厘米：远超容许的几厘米
     _, confirmed_bad = verify_body(shifted, skeletons, depths, (fx, fy, cx, cy))
     assert confirmed_bad < 0.3

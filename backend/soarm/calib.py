@@ -252,12 +252,13 @@ def verify_body(
     skeletons: list[np.ndarray],
     depths: list[np.ndarray],
     intrinsics: tuple[float, float, float, float],
-    link_radius: float = 0.022,
+    tolerance: float = 0.05,
 ) -> tuple[float, float]:
-    """反向验证外参：把每个姿态的手臂模型投影到深度图上，看深度图是否真的在那里看到了东西。
+    """反向验证外参：把每个姿态的手臂模型投影到深度图上，看深度图是否真的在那附近看到了东西。
 
     返回 (模型点落在画面内的比例, 其中被深度证实的比例)。求解只保证“看到的点贴着模型”，
-    这里检查“模型在的地方确实有点”，两头都成立才可信。
+    这里检查“模型在的地方确实有东西”，两头都成立才可信。骨架只是连杆的轴线，而夹爪是个
+    不对称的宽块，所以允许 tolerance 这么大的偏差：在画面上看周围这么大一圈，深度上也放宽这么多。
     """
     fx, fy, cx, cy = intrinsics
     T_inv = np.linalg.inv(T)
@@ -271,12 +272,13 @@ def verify_body(
                 if p[2] <= 0.05:
                     continue
                 u, v = int(round(fx * p[0] / p[2] + cx)), int(round(fy * p[1] / p[2] + cy))
-                if not (2 <= u < w - 2 and 2 <= v < h - 2):
+                if not (0 <= u < w and 0 <= v < h):
                     continue
                 inside += 1
-                patch = depth[v - 2 : v + 3, u - 2 : u + 3]
+                r = max(2, int(round(fx * tolerance / p[2])))
+                patch = depth[max(0, v - r) : v + r + 1, max(0, u - r) : u + r + 1]
                 valid = patch[patch > 0.05]
-                if valid.size and abs(float(np.median(valid)) - (p[2] - link_radius)) < 0.05:
+                if valid.size and np.any(np.abs(valid - p[2]) < tolerance):
                     confirmed += 1
     return inside / max(total, 1), confirmed / max(inside, 1)
 
