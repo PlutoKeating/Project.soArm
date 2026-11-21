@@ -583,3 +583,35 @@ def test_depth_guidance_stops_when_camera_pose_can_no_longer_be_confirmed(world)
     # 之后 30 秒以上再也确认不了：停用，臂回初始位
     world.step(34.0)
     assert rig.ctl._cue_arm is None and rig.at_home("left")
+
+
+def test_fit_floor_normal_with_prior_rejects_a_plane_above_the_camera():
+    """相机上方一块朝下的平面，法线与“上”平行但方向相反，不能当成地面。"""
+    fx = fy = 600.0
+    cx, cy, w, h = 320.0, 240.0, 640, 480
+    pitch = np.deg2rad(25.0)
+    up = np.array([0.0, -np.cos(pitch), np.sin(pitch)])  # 相机略微仰视，才看得到上方的平面
+    v, u = np.mgrid[0:h, 0:w]
+    rays = np.stack([(u - cx) / fx, (v - cy) / fy, np.ones_like(u, float)], axis=-1)
+    with np.errstate(divide="ignore"):
+        depth = 1.0 / (rays @ up)  # 平面在相机上方 1 米：up·p = +1
+    depth[(depth <= 0) | (depth > 3.9)] = 0
+    assert (depth > 0.6).sum() > 5000
+    with pytest.raises(ValueError):
+        fit_floor_normal(depth.astype(np.float32), (fx, fy, cx, cy), expected_up=up)
+
+
+def test_depth_guidance_uses_the_calibrated_extrinsic_regardless_of_noisy_floor_estimates(world):
+    """运行中测到的地面方向再怎么抖，引导用的外参都不变。"""
+    rig = world.rig
+    for ext in rig.ctl.calibration.arms.values():
+        ext.up_cam = np.array([0.0, -0.9, -0.436])
+    rig.ctl._floor_ok_time = rig.now + 1e6  # 视为一直确认
+    rig.ctl._floor_up = np.array([0.0, -0.6, -0.8])  # 一个偏了二十多度的地面估计
+    world.wrist_blind = {"left", "right"}
+    world.hand_in, world.point = "left", np.array([0.55, 0.30, 0.30])
+    world.step(3.0)
+    world.wrist_blind = set()
+    world.step(DT)
+    cx, cy = world.pixel("left")
+    assert abs(cx - 0.5) < 0.08 and abs(cy - 0.5) < 0.10  # 仍然对得准

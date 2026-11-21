@@ -268,7 +268,14 @@ def fit_floor_normal(
     plane = pts[best_mask]
     centre = plane.mean(axis=0)
     normal = np.linalg.svd(plane - centre)[2][-1]
-    if normal @ centre > 0:
+    if expected_up is not None:
+        # 有先验时按先验定正反，并要求这个平面在相机下方。否则相机上方一块朝下的平面
+        # （比如有人举着的板子）也会被当成地面，而且“上”的方向正好反过来
+        if normal @ expected_up < 0:
+            normal = -normal
+        if normal @ centre > 0:
+            raise ValueError("方向相符的平面在相机上方，不是地面")
+    elif normal @ centre > 0:
         normal = -normal  # 朝向相机一侧，即朝上
     return normal, float(abs(normal @ centre))
 

@@ -746,7 +746,9 @@ class Controller:
                 ext = self.calibration.arms.get(name)
                 if ext is None or not rt.limits:
                     continue
-                T = ext.at(self._floor_up)
+                # 外参固定不动。运行中测到的地面方向噪声很大（相机抬得平时尤其如此），
+                # 只用它判断相机是否还在标定姿态，不拿它来换算外参
+                T = ext.T_base_cam
                 point = T[:3, :3] @ hand.xyz + T[:3, 3]
                 home = {j: rt.home[j] for j in ARM_JOINTS}
                 offsets = aim_offsets(self.kin, home, point, self._pan_dir, self._tilt_dir)
@@ -764,7 +766,10 @@ class Controller:
                     self._collect_auto_sample(name, hand)
 
     def _refresh_floor(self, cam, now: float) -> None:
-        """每隔几秒从深度图重新测一次地面法线，用来把外参换算到云台当前的俯仰下。"""
+        """每隔几秒从深度图找一次地面，确认相机还在标定时的姿态附近。
+
+        找得到“方向与标定时相符、且在相机下方”的地面就算确认了一次。
+        """
         if now - self._floor_time < 5.0 and self._floor_up is not None:
             return
         self._floor_time = now
@@ -883,8 +888,8 @@ class Controller:
             existing = self.calibration.arms.get(arm)
             if existing is not None and existing.up_cam is not None:
                 # 已有带地面法线的外参：在它的基础上精修，只动转角和平移
-                up = self._floor_up if self._floor_up is not None else existing.up_cam
-                T, rms_deg, used = refine_from_bearings(samples, existing.at(up), up)
+                up = existing.up_cam
+                T, rms_deg, used = refine_from_bearings(samples, existing.T_base_cam, up)
                 moved = float(np.linalg.norm(T[:3, 3] - existing.T_base_cam[:3, 3]))
                 self.calibration.arms[arm] = ArmExtrinsic(T, existing.rms, used, up)
                 self.calibration.save(self.calib_path)
