@@ -291,8 +291,12 @@ def solve_from_body(
     up_cam: np.ndarray,
     link_radius: float = 0.025,
     yaw_deg: float | None = None,
-) -> tuple[np.ndarray, float, int]:
+    all_candidates: bool = False,
+):
     """用机械臂自身当标定物求 T_base_cam。返回 (4x4 变换, 点到手臂表面的 RMS 距离/米, 采用的点数)。
+
+    all_candidates 为真时返回所有互不相同的候选解的列表（按残差从小到大），由调用方
+    再用 verify_body 的反向验证来挑：残差最小的那个不一定对。
 
     让机械臂摆若干姿态，深度相机每次看到的手臂点云，换到基座系后都应该贴在该姿态的
     骨架周围。几点做法：
@@ -357,37 +361,53 @@ def solve_from_body(
         return params, cost
 
     everything = [np.ones(len(c), bool) for c in clouds]
-    best = None
+    total = sum(len(c) for c in clouds)
+    starts = []
     for yaw in np.deg2rad([-40.0, -20.0, 0.0, 20.0, 40.0] if yaw_deg is None else [yaw_deg]):
         for x in (-0.1, 0.05, 0.2):
             for y in (-0.3, -0.15, 0.0, 0.15, 0.3):
                 for z in (0.3, 0.45, 0.6):
-                    params, cost = refine(np.array([yaw, x, y, z]), everything, 10)
-                    if best is None or cost < best[1]:
-                        best = (params, cost)
-    params, _ = refine(best[0], everything, 40)
-    # 剔除离模型远的点后精解
-    R, t = transform(params)
-    use = [np.abs(_segment_distance(c @ R.T + t, sk) - link_radius) < 0.06 for sk, c in zip(skeletons, clouds)]
-    if sum(int(u.sum()) for u in use) < 200:
-        raise ValueError("贴着手臂模型的点太少，标定不可信")
-    params, _ = refine(params, use, 60)
-    R, t = transform(params)
-    dist = np.concatenate([
-        (_segment_distance(c @ R.T + t, sk) - link_radius)[u] for sk, c, u in zip(skeletons, clouds, use)
-    ])
-    kept = sum(int(u.sum()) for u in use)
-    if kept < 0.3 * sum(len(c) for c in clouds):
-        raise ValueError(f"只有 {kept / sum(len(c) for c in clouds):.0%} 的点能贴到手臂模型上，标定不可信")
-    # 合理性：相机装在手臂上方、朝前。对着一堆无关的点也可能凑出一个残差不大的解，在这里拦下
-    if not 0.15 < t[2] < 1.0 or R[0, 2] < 0.1:
+                    starts.append(refine(np.array([yaw, x, y, z]), everything, 10))
+    starts.sort(key=lambda item: item[1])
+    # 不同初值会收敛到几个不同的解（典型的是沿手臂方向错开一节连杆）。把互不相同的都精解出来
+    distinct: list[np.ndarray] = []
+    for params, _ in starts:
+        if all(np.linalg.norm(params[1:] - d_[1:]) > 0.05 for d_ in distinct):
+            distinct.append(params)
+        if len(distinct) >= 4:
+            break
+    candidates, errors = [], []
+    for params in distinct:
+        params, _ = refine(params, everything, 40)
+        R, t = transform(params)
+        # 剔除离模型远的点后精解
+        use = [np.abs(_segment_distance(c @ R.T + t, sk) - link_radius) < 0.06 for sk, c in zip(skeletons, clouds)]
+        kept = sum(int(u.sum()) for u in use)
+        if kept < max(200, 0.3 * total):
+            errors.append(f"只有 {kept / total:.0%} 的点能贴到手臂模型上")
+            continue
+        params, cost = refine(params, use, 60)
+        R, t = transform(params)
+        # 合理性：相机装在手臂上方、朝前。对着一堆无关的点也可能凑出一个残差不大的解，在这里拦下
+        if not 0.15 < t[2] < 1.0 or R[0, 2] < 0.1:
+            errors.append(f"相机位置 ({t[0]:.2f}, {t[1]:.2f}, {t[2]:.2f}) 或朝向 {np.round(R[:, 2], 2).tolist()} 不合理")
+            continue
+        dist = np.concatenate([
+            (_segment_distance(c @ R.T + t, sk) - link_radius)[u] for sk, c, u in zip(skeletons, clouds, use)
+        ])
+        T = np.eye(4)
+        T[:3, :3], T[:3, 3] = R, t
+        candidates.append((T, float(np.sqrt((dist**2).mean())), kept, cost))
+    if not candidates:
         raise ValueError(
-            f"求出的相机位置 ({t[0]:.2f}, {t[1]:.2f}, {t[2]:.2f}) 或朝向 {np.round(R[:, 2], 2).tolist()} 不合理："
-            "相机应在手臂上方、朝前。多半是手臂没进入相机视野，点云里是别的东西"
+            "没有可信的解：" + "；".join(errors or ["未收敛"])
+            + "。相机应在手臂上方、朝前；多半是手臂没进入相机视野，点云里是别的东西"
         )
-    T = np.eye(4)
-    T[:3, :3], T[:3, 3] = R, t
-    return T, float(np.sqrt((dist**2).mean())), kept
+    candidates.sort(key=lambda item: item[3])
+    if all_candidates:
+        return [(T, rms, kept) for T, rms, kept, _ in candidates]
+    T, rms, kept, _ = candidates[0]
+    return T, rms, kept
 
 
 def verify_body(

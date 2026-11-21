@@ -7,6 +7,8 @@ __pycache__/
 
 # 本机相关：端口、相机设备路径、标定结果
 config/config.yaml
+config/config.*.yaml
+!config/config.example.yaml
 calibration/
 
 # 通过脚本下载的内容，不入库

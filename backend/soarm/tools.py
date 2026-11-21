@@ -471,7 +471,16 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
         np.save(out_dir / "background_depth.npy", background.astype(np.float32))
         print(f"有效姿态 {len(observations)}/{len(poses)}，原始数据已存到 {out_dir}")
         yaw = None if args.yaw != args.yaw else args.yaw  # nan 表示不固定
-        T, rms, used = solve_from_body(observations, up_cam, yaw_deg=yaw)
+        # 残差最小的解不一定对（可能沿手臂错开一节连杆），所以拿所有候选解去做反向验证，取得分最高的
+        skeleton_list = [np.array(r["skeleton"]) for r in records]
+        intr4 = (intr.fx, intr.fy, intr.cx, intr.cy)
+        scored = []
+        for cand_T, cand_rms, cand_used in solve_from_body(observations, up_cam, yaw_deg=yaw, all_candidates=True):
+            c_inside, c_confirmed = verify_body(cand_T, skeleton_list, depths, intr4)
+            print(f"  候选解 位置 ({cand_T[0, 3]:.3f}, {cand_T[1, 3]:.3f}, {cand_T[2, 3]:.3f}) RMS {cand_rms * 1000:.0f} mm"
+                  f"  反向验证 画面内 {c_inside:.0%} 被证实 {c_confirmed:.0%}")
+            scored.append((c_inside * c_confirmed, cand_T, cand_rms, cand_used))
+        _, T, rms, used = max(scored, key=lambda item: item[0])
         print(f"求解：采用 {used} 个点，点到手臂表面的 RMS {rms * 1000:.0f} mm")
         print(f"  相机在 {name} 臂基座系下的位置 x={T[0, 3]:.3f} y={T[1, 3]:.3f} z={T[2, 3]:.3f} m；"
               f"光轴方向 {np.round(T[:3, 2], 2).tolist()}")
@@ -492,7 +501,7 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
             T, [np.array(r["skeleton"]) for r in records], depths, (intr.fx, intr.fy, intr.cx, intr.cy)
         )
         print(f"反向验证：手臂模型有 {inside:.0%} 落在画面内，其中 {confirmed:.0%} 被深度图证实")
-        trusted = inside >= 0.3 and confirmed >= 0.6
+        trusted = inside >= 0.25 and confirmed >= 0.8
         if not trusted:
             print("验证未通过：这个外参不可信，不保存。请看 check_*.jpg 里黄色骨架是否压在手臂上。")
         if trusted and not args.dry_run:
