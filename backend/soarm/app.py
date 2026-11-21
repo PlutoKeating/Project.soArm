@@ -78,6 +78,12 @@ def create_app(cfg: Config) -> FastAPI:
         for cam in controller.cameras.values():
             cam.start()
         await asyncio.to_thread(controller.start)
+        if cfg.start_mode != "idle":
+            try:
+                controller.set_mode(cfg.start_mode)
+                logger.info("已自动进入模式 %s", cfg.start_mode)
+            except (RuntimeError, ValueError) as e:
+                logger.error("无法自动进入模式 %s: %s", cfg.start_mode, e)
         yield
         await asyncio.to_thread(controller.shutdown)
         for cam in controller.cameras.values():
@@ -208,6 +214,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="SO-ARM 双臂演示控制台")
     parser.add_argument("--config", help="配置文件路径，默认 config/config.yaml")
     parser.add_argument("--mock", action="store_true", help="不连接机械臂和云台，用模拟替身")
+    parser.add_argument("--mode", choices=MODES, help="启动后自动进入的模式，覆盖配置里的 start_mode")
     parser.add_argument("--host")
     parser.add_argument("--port", type=int)
     args = parser.parse_args()
@@ -216,6 +223,8 @@ def main() -> None:
     cfg = load_config(args.config)
     if args.mock:
         cfg.mock = True
+    if args.mode:
+        cfg.start_mode = args.mode
     host, port = args.host or cfg.server.host, args.port or cfg.server.port
     logger.info("控制台地址 http://%s:%d  （mock=%s）", host, port, cfg.mock)
     # 视频流和 WebSocket 是长连接，浏览器开着时不会自己断开。不设超时的话 Ctrl+C 后

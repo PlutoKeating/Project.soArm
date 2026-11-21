@@ -173,7 +173,7 @@ class CameraWorker:
         self._primary_time = 0.0
         self._frame_time = 0.0
         self.intrinsics: Intrinsics | None = None
-        self.error: str | None = "未启动"
+        self.error: str | None = "未启动" if cfg.enabled else "已在配置中停用"
         self.fps = 0.0
         self.detect_fps = 0.0
         self.read_ms = 0.0  # 取一帧的平均耗时（含等待下一帧）
@@ -189,11 +189,13 @@ class CameraWorker:
 
     # ---------- 生命周期 ----------
     def start(self) -> None:
-        self._thread.start()
+        if self.cfg.enabled:
+            self._thread.start()
 
     def stop(self) -> None:
         self._stop.set()
-        self._thread.join(timeout=3)
+        if self._thread.is_alive():
+            self._thread.join(timeout=3)
 
     def _open(self):
         if self.cfg.type == "realsense":

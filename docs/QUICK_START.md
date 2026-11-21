@@ -107,13 +107,34 @@ uv run soarm-console
 
 ## 4. 日常使用
 
+调试时直接在终端运行，Ctrl+C 结束（会自动先收到休息位再释放力矩）：
+
 ```bash
-uv run soarm-console          # 启动
+uv run soarm-console                 # 启动后停在待机
+uv run soarm-console --mode follow   # 启动后自动进入腕部跟随
 ```
 
-结束时点“收到休息位并释放力矩”，或直接 Ctrl+C（会自动先收到休息位再释放力矩）。
+## 5. 生产运行（展示时）
 
-## 5. 常见问题
+用 systemd 用户服务常驻运行：脱离终端，异常退出会自动拉起并回到 `start_mode` 指定的模式。
+
+```bash
+scripts/production.sh start      # 启动
+scripts/production.sh status     # 查看状态
+scripts/production.sh logs       # 跟随查看日志
+scripts/production.sh stop       # 停止：两只臂先收到休息位再释放力矩
+```
+
+准备工作：
+
+- 在 `config/config.yaml` 里设 `start_mode: follow`。
+- 生产运行以仓库目录里当前检出的代码为准，应检出 `main` 分支。
+- 不需要的相机设 `enabled: false`，设备就不会被占用。
+- 运行期间不要在这个目录里切换分支或改代码；后续开发在单独的 git worktree 里做，并使用别的端口。
+
+异常重启时手臂的力矩不会掉：舵机保持在原位，新进程接管后回到初始位继续工作。
+
+## 6. 常见问题
 
 | 现象 | 处理 |
 |---|---|

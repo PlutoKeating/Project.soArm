@@ -39,7 +39,7 @@ scripts/fetch_models.sh          # 下载 MediaPipe 手部模型
 uv run soarm-console --mock      # 不接硬件，用模拟臂跑通控制台
 ```
 
-打开 <http://127.0.0.1:8000>。接真机的完整步骤（扫描串口、校准、相机、外参标定）见 [docs/QUICK_START.md](docs/QUICK_START.md)。
+打开 <http://127.0.0.1:8000>。展示时用 `scripts/production.sh start` 常驻运行。接真机的完整步骤（扫描串口、校准、相机、外参标定）见 [docs/QUICK_START.md](docs/QUICK_START.md)。
 
 ## 文档
 

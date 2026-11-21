@@ -58,6 +58,7 @@ class HeadConfig:
 
 @dataclass
 class CameraConfig:
+    enabled: bool = True  # 设为 false 则完全不打开这路相机，把设备留给别的程序
     type: str = "opencv"  # opencv | realsense
     device: str = ""  # opencv: /dev/v4l/by-path/...-usbv2-... 或整数索引；realsense: 序列号，留空取第一台
     width: int = 640
@@ -147,6 +148,8 @@ class DetectorConfig:
 class Config:
     mock: bool = False
     control_hz: float = 30.0
+    # 启动并连接设备后自动进入的模式。生产运行设为 follow，进程被自动重启后也能直接恢复
+    start_mode: str = "idle"
     server: ServerConfig = field(default_factory=ServerConfig)
     arms: dict[str, ArmConfig] = field(
         default_factory=lambda: {

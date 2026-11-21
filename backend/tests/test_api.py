@@ -90,3 +90,23 @@ def test_mediapipe_detector_loads_and_handles_empty_frame():
         assert detector.detect(np.zeros((480, 640, 3), np.uint8), 1) == []  # 时间戳重复也不报错
     finally:
         detector.close()
+
+
+def test_start_mode_is_entered_automatically(tmp_path):
+    cfg = Config(mock=True, cameras={}, calibration_dir=str(tmp_path), start_mode="follow")
+    with TestClient(create_app(cfg)) as c:
+        assert c.get("/api/state").json()["mode"] == "follow"
+
+
+def test_disabled_camera_is_never_opened(tmp_path):
+    from soarm.config import CameraConfig
+
+    cfg = Config(
+        mock=True,
+        cameras={"head": CameraConfig(enabled=False, type="realsense")},
+        calibration_dir=str(tmp_path),
+    )
+    with TestClient(create_app(cfg)) as c:
+        cam = c.get("/api/state").json()["cameras"]["head"]
+        assert "停用" in cam["error"] and cam["fps"] == 0
+        assert not c.app.state.controller.cameras["head"]._thread.is_alive()

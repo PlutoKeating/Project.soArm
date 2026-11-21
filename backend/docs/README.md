@@ -6,7 +6,8 @@ Python 包 `soarm`，位于 `backend/soarm/`。依赖由仓库根目录的 `pypr
 
 | 命令 | 作用 |
 |---|---|
-| `uv run soarm-console [--mock] [--config PATH] [--host H] [--port P]` | 启动控制台（Web 服务 + 控制循环 + 相机线程） |
+| `uv run soarm-console [--mock] [--mode M] [--config PATH] [--host H] [--port P]` | 启动控制台（Web 服务 + 控制循环 + 相机线程）；`--mode` 指定启动后自动进入的模式 |
+| `scripts/production.sh start\|stop\|status\|logs` | 以 systemd 用户服务常驻运行，异常退出自动拉起 |
 | `uv run soarm-tools scan` | 扫描串口上的 STS3215 舵机 |
 | `uv run soarm-tools cameras` | 列出相机并保存快照 |
 | `uv run soarm-tools watch <arm> [--once]` | 只读：显示该臂的行程限位并实时显示关节角度 |
