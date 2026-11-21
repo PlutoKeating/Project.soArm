@@ -15,6 +15,8 @@
 | `POST /api/go` | `{"pose": "home\|rest", "release": false}` | 前往初始位或休息位；`release` 为真时到位后释放力矩 |
 | `POST /api/torque` | `{"active": true\|false}` | 开关所有臂的力矩。关闭后手臂会下落 |
 | `POST /api/arm/enable` | `{"arm": "left", "enabled": false}` | 停用或启用一只臂。停用后它在任何模式下都只保持当前位置 |
+| `POST /api/arm/lend` | `{"arm": "right"}` | 把一只臂借给开发程序：停止指挥并松开串口，舵机力矩不变 |
+| `POST /api/restore` | – | 恢复全量展示：让登记在案的开发程序退出，接管所有借出的臂。返回 `{"evicted", "restored", "failed"}` |
 | `POST /api/reconnect` | – | 重新连接未连上的机械臂和云台 |
 | `POST /api/head/preset` | – | 云台回到标定时的姿态 |
 | `POST /api/calib/sample` | `{"arm": "left", "u": 0.5, "v": 0.5}` | 记录一个标定点。`u`、`v` 是深度相机画面上夹爪尖的归一化坐标 |
@@ -53,6 +55,7 @@
     "left": {
       "connected": true,
       "enabled": true,
+      "lent": false,
       "error": null,
       "torque": true,
       "status": "移动中",
@@ -97,6 +100,7 @@
 - `auto_samples` 是外参自动标定已为这只臂积累的配对样本数。
 - `view_quality` 是这只臂的腕部相机当前看手的质量评分，0–1，0 表示看不到。
 - `cameras.*.fps` / `detect_fps` 是采集帧率和检测频率；`read_ms` 是取一帧的平均耗时（含等待下一帧），`detect_ms` 是单帧检测的平均耗时，用于排查卡顿。当前模式用不到某路相机的检测时，它的 `detect_fps` 为 0。
+- `lent` 为真表示这只臂已借给开发程序，此时 `connected` 为假。
 - `head` 在未配置云台时为 `null`。
 - `cameras.*.primary` 是当前锁定的主手：`cx`、`cy` 为掌心的归一化画面坐标，`size` 为手在画面中的相对大小，`xyz` 为相机光学系下的 3D 坐标（米，x 右 y 下 z 前），只有深度相机有。没有主手时为 `null`。
 

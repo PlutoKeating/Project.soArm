@@ -86,6 +86,7 @@ class ArmRuntime:
     aim_vel: np.ndarray = field(default_factory=lambda: np.zeros(2))  # 上述方向的角速度，度/秒
     aim_t: float = 0.0  # 最近一次用于更新 aim 的观测时刻
     enabled: bool = True  # 停用的臂在任何模式下都只保持当前位置
+    lent: bool = False  # 已借给开发程序：本进程松开了串口，舵机力矩保持
     home: dict[str, float] = field(default_factory=dict)  # 本臂的初始位
     limits: dict[str, tuple[float, float]] = field(default_factory=dict)  # 本臂生效的关节限位
     rest: dict[str, float] | None = None  # 本臂的休息位：上电时手臂自然停放的姿态
@@ -185,7 +186,7 @@ class Controller:
         """连接尚未连上的设备。失败只记录错误，不影响其它设备。"""
         with self._lock:
             for name, rt in self.arms.items():
-                if rt.arm.connected:
+                if rt.arm.connected or rt.lent:
                     continue
                 try:
                     rt.arm.connect()
@@ -298,6 +299,61 @@ class Controller:
             rt.goto = None
             if enabled and self.mode in ("follow", "fused") and not self.estop:
                 self._start_goto(rt, rt.home, "home")
+
+    def lend_arm(self, arm: str) -> None:
+        """把一只臂借给开发程序：停止指挥它并松开串口，舵机力矩不变、臂停在原位。"""
+        with self._lock:
+            rt = self.arms[arm]
+            if rt.lent:
+                return
+            self._reset_motion(rt)
+            rt.goto = None
+            if rt.arm.connected:
+                rt.arm.disconnect()
+            rt.arm.connected = False
+            rt.lent = True
+            rt.arm.error = "已借给开发调试"
+            rt.status = "已借出"
+            logger.info("机械臂 %s 已借给开发程序", arm)
+
+    def restore_all(self) -> dict:
+        """恢复全量展示：让借用机械臂的开发程序退出，把借出的臂全部接管回来。"""
+        from .. import lab
+
+        note = lab.evict()
+        with self._lock:
+            lent = [name for name, rt in self.arms.items() if rt.lent]
+            for name in lent:
+                self.arms[name].lent = False
+        # 开发程序刚松开串口，系统可能还要一瞬间才放行，重试几次
+        for _ in range(12):
+            self.connect_all()
+            if all(self.arms[name].arm.connected for name in lent):
+                break
+            time.sleep(0.25)
+        with self._lock:
+            for name in lent:
+                rt = self.arms[name]
+                if rt.arm.connected and self._pointing_mode_or_follow() and not self.estop:
+                    self._start_goto(rt, rt.home, "home")
+            failed = [name for name in lent if not self.arms[name].arm.connected]
+        logger.info("恢复全量展示：%s；接管 %s；失败 %s", note, lent, failed)
+        return {"evicted": note, "restored": [n for n in lent if n not in failed], "failed": failed}
+
+    def _pointing_mode_or_follow(self) -> bool:
+        return self.mode in ("follow", "fused")
+
+    def abort(self) -> None:
+        """立刻停手并松开所有串口，不收手、不动力矩。给开发程序被要求让路时用。"""
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join(timeout=1)
+        for rt in self.arms.values():
+            if rt.arm.connected:
+                try:
+                    rt.arm.disconnect()
+                except Exception as e:
+                    logger.warning("松开 %s 失败: %s", rt.arm.name, e)
 
     def set_torque(self, enabled: bool) -> None:
         with self._lock:
@@ -999,6 +1055,7 @@ class Controller:
                 arms[name] = {
                     "connected": rt.arm.connected,
                     "enabled": rt.enabled,
+                    "lent": rt.lent,
                     "error": rt.arm.error,
                     "torque": rt.arm.torque_enabled,
                     "status": rt.status,

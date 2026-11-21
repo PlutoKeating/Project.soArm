@@ -139,6 +139,15 @@ def create_app(cfg: Config) -> FastAPI:
         command(controller.set_arm_enabled, body.arm, body.enabled)
         return {"ok": True}
 
+    @app.post("/api/arm/lend")
+    def post_arm_lend(body: ArmBody):
+        command(controller.lend_arm, body.arm)
+        return {"ok": True}
+
+    @app.post("/api/restore")
+    async def post_restore():
+        return await asyncio.to_thread(controller.restore_all)
+
     @app.post("/api/reconnect")
     async def post_reconnect():
         await asyncio.to_thread(controller.connect_all)
