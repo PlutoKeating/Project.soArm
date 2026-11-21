@@ -2,10 +2,17 @@
 # 这里只列出必须按本机填写的项；其余参数（限速、跟随增益、工作空间等）的默认值
 # 和含义见 backend/soarm/config.py，需要调整时把对应字段写到这里覆盖即可。
 
+# 全局初始位见 config.py 的 home。腕部相机画面是侧的时调整 wrist_roll（默认 -90）。
+# home:
+#   wrist_roll: -90
+
 arms:
   left:
     port: ""            # soarm-tools scan 输出的串口路径，优先用 /dev/serial/by-id/...
     camera: wrist_left
+    # 中柱避让等额外限位（度）。肩部旋转正方向为向右转；默认左臂 [-110, 30]、右臂 [-30, 110]
+    # joint_limits:
+    #   shoulder_pan: [-110, 30]
     # 腕部跟随方向反了时改成 -1（上真机后各验证一次）
     follow_pan_sign: 1.0
     follow_tilt_sign: 1.0

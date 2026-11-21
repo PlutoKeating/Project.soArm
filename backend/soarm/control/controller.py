@@ -76,6 +76,7 @@ class ArmRuntime:
     guided: dict[str, float] | None = None  # 第 3 步引导得到的关节角（不含腕部精调）
     paused_until: float = 0.0
     status: str = ""
+    enabled: bool = True  # 停用的臂在任何模式下都只保持当前位置
     home: dict[str, float] = field(default_factory=dict)  # 本臂的初始位
     limits: dict[str, tuple[float, float]] = field(default_factory=dict)  # 本臂生效的关节限位
     rest: dict[str, float] | None = None  # 本臂的休息位：上电时手臂自然停放的姿态
@@ -144,16 +145,18 @@ class Controller:
         _, p1 = self.kin.tip_and_pitch({**base, "wrist_flex": base["wrist_flex"] + 1.0})
         return float(np.sign(yaw) or 1.0), float(np.sign(p1 - p0) or 1.0)
 
-    def _arm_limits(self, arm: Arm) -> dict[str, tuple[float, float]]:
-        """URDF 限位与这只臂自身行程限位的交集，各留一点余量。"""
+    def _arm_limits(self, rt: ArmRuntime) -> dict[str, tuple[float, float]]:
+        """URDF 限位、这只臂自身行程限位、配置里额外限位三者的交集。"""
         margin = self.cfg.safety.joint_limit_margin_deg
-        own = arm.limits()
+        own = rt.arm.limits()
         out = {}
         for j in ARM_JOINTS:
             lo, hi = self.kin.limits[j]
             lo, hi = lo + margin, hi - margin
             if j in own:
                 lo, hi = max(lo, own[j][0] + 2.0), min(hi, own[j][1] - 2.0)
+            if j in rt.cfg.joint_limits:
+                lo, hi = max(lo, rt.cfg.joint_limits[j][0]), min(hi, rt.cfg.joint_limits[j][1])
             out[j] = (lo, hi)
         return out
 
@@ -172,7 +175,7 @@ class Controller:
                     was_resting = rt.rest is None and rt.arm.found_resting
                     rt.pos = rt.arm.read()
                     rt.target = dict(rt.pos)  # 以当前位置为目标，上电不跳变
-                    rt.limits = self._arm_limits(rt.arm)
+                    rt.limits = self._arm_limits(rt)
                     if was_resting:
                         # 首次连接时手臂是无力停放的，这个姿态就是它最稳妥的休息位
                         rt.rest = {**rt.pos, "gripper": self.cfg.rest["gripper"]}
@@ -231,6 +234,8 @@ class Controller:
             self._fused_arm = None
             for rt in self.arms.values():
                 self._reset_motion(rt)
+                if not rt.enabled:
+                    continue
                 if mode in ("follow", "fused") or (mode == "keyboard" and not self._in_workspace(rt)):
                     self._start_goto(rt, rt.home, "home")
             if mode == "fused" and self.calibration.head_preset and self.head_target is not None:
@@ -259,8 +264,20 @@ class Controller:
             self.mode = "idle"
             for rt in self.arms.values():
                 self._reset_motion(rt)
+                if not rt.enabled:
+                    continue
                 target = rt.home if pose == "home" else (rt.rest or self.cfg.rest)
                 self._start_goto(rt, target, pose, release=release)
+
+    def set_arm_enabled(self, arm: str, enabled: bool) -> None:
+        """停用或启用一只臂。停用后它在任何模式下都只保持当前位置。"""
+        with self._lock:
+            rt = self.arms[arm]
+            rt.enabled = enabled
+            self._reset_motion(rt)
+            rt.goto = None
+            if enabled and self.mode in ("follow", "fused") and not self.estop:
+                self._start_goto(rt, rt.home, "home")
 
     def set_torque(self, enabled: bool) -> None:
         with self._lock:
@@ -394,7 +411,10 @@ class Controller:
             return
 
         speed = safety.max_joint_speed_deg_s
-        if rt.goto is not None:
+        if not rt.enabled and rt.goto is None:
+            desired = dict(rt.target)
+            rt.status = "已停用，保持"
+        elif rt.goto is not None:
             desired, speed = dict(rt.goto), safety.home_speed_deg_s
             rt.status = "回初始位" if rt.goto_name == "home" else "收到休息位"
         elif self.mode == "keyboard":
@@ -549,7 +569,7 @@ class Controller:
         best: tuple[float, str, np.ndarray] | None = None
         for name, rt in self.arms.items():
             ext = self.calibration.arms.get(name)
-            if ext is None or not rt.arm.connected or not rt.arm.torque_enabled:
+            if ext is None or not rt.enabled or not rt.arm.connected or not rt.arm.torque_enabled:
                 continue
             p = ext.T_base_cam[:3, :3] @ hand.xyz + ext.T_base_cam[:3, 3]
             if p[0] < 0.02:  # 手在基座后方，不去够
@@ -702,6 +722,7 @@ class Controller:
                 ext = self.calibration.arms.get(name)
                 arms[name] = {
                     "connected": rt.arm.connected,
+                    "enabled": rt.enabled,
                     "error": rt.arm.error,
                     "torque": rt.arm.torque_enabled,
                     "status": rt.status,

@@ -261,3 +261,37 @@ def test_snapshot_is_json_serialisable(rig):
     json.dumps(snap)
     assert set(snap["arms"]) == {"left", "right"}
     assert snap["mode"] == "idle"
+
+
+def test_disabled_arm_holds_in_every_mode(rig):
+    rig.ctl.set_arm_enabled("left", False)
+    before = dict(rig.ctl.arms["left"].pos)
+    rig.ctl.set_mode("follow")
+    rig.cams["wrist_left"].show(0.9, 0.9)
+    rig.run(6.0)
+    assert rig.ctl.arms["left"].pos == pytest.approx(before, abs=0.01)
+    assert rig.at_home("right")
+    rig.ctl.go("home")
+    rig.run(3.0)
+    assert rig.ctl.arms["left"].pos == pytest.approx(before, abs=0.01)
+    rig.ctl.set_arm_enabled("left", True)  # 跟随模式下重新启用会先回初始位
+    rig.ctl.set_mode("follow")
+    rig.cams["wrist_left"].hand = None
+    rig.run(6.0)
+    assert rig.at_home("left")
+
+
+def test_pan_never_crosses_toward_the_mast(rig):
+    """中柱避让：左臂不超过前偏右 30°（+pan），右臂不超过前偏左 30°（-pan）。"""
+    rig.ctl.set_mode("follow")
+    rig.run(6.0)
+    rig.cams["wrist_left"].show(1.0, 0.5)   # 手一直在左臂画面最右
+    rig.cams["wrist_right"].show(0.0, 0.5)  # 手一直在右臂画面最左
+    rig.run(15.0)
+    assert 20.0 < rig.ctl.arms["left"].pos["shoulder_pan"] <= 30.0 + 1e-6
+    assert -30.0 - 1e-6 <= rig.ctl.arms["right"].pos["shoulder_pan"] < -20.0
+    rig.ctl.set_mode("keyboard")
+    rig.run(6.0)
+    rig.run(15.0, keys=["KeyD", "KeyJ"])  # 左臂向右、右臂向左
+    assert rig.ctl.arms["left"].target["shoulder_pan"] <= 30.0 + 1e-6
+    assert rig.ctl.arms["right"].target["shoulder_pan"] >= -30.0 - 1e-6

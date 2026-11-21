@@ -125,6 +125,10 @@ function renderArm(panel, arm, cam) {
     statusEl.classList.add("ok");
   }
   panel.classList.toggle("selected", Boolean(arm.fused_selected));
+  panel.classList.toggle("disabled", !arm.enabled);
+  const toggle = $(".arm-toggle", panel);
+  toggle.textContent = arm.enabled ? "停用" : "启用";
+  toggle.dataset.next = arm.enabled ? "off" : "on";
   renderCamera($(".cam-info", panel), cam);
 
   const set = (f, v) => { $(`[data-f="${f}"]`, panel).textContent = v; };
@@ -142,7 +146,7 @@ function renderArm(panel, arm, cam) {
     $("i", row).style.left = pct(now, JOINT_RANGE[j]);
     $("em", row).style.left = pct(arm.target[j] ?? now, JOINT_RANGE[j]);
   }
-  $(".keys", panel).classList.toggle("disabled", state.mode !== "keyboard" || state.estop);
+  $(".keys", panel).classList.toggle("disabled", state.mode !== "keyboard" || state.estop || !arm.enabled);
 }
 
 function render() {
@@ -281,6 +285,11 @@ function bindButtons() {
   $("#estop").addEventListener("click", () => post("/api/estop", { active: !(state && state.estop) }));
   for (const btn of $$(".modes button")) {
     btn.addEventListener("click", () => post("/api/mode", { mode: btn.dataset.mode }));
+  }
+  for (const panel of $$(".panel[data-arm]")) {
+    $(".arm-toggle", panel).addEventListener("click", (ev) => {
+      post("/api/arm/enable", { arm: panel.dataset.arm, enabled: ev.currentTarget.dataset.next === "on" });
+    });
   }
   $("#btn-home").addEventListener("click", () => post("/api/go", { pose: "home" }));
   $("#btn-rest").addEventListener("click", () => post("/api/go", { pose: "rest", release: true }));

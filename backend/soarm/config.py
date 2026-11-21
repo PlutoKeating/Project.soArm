@@ -32,6 +32,9 @@ class ArmConfig:
     inward_limit: float = 0.10
     # 在本臂基座系里，“朝向另一只臂”是 +y 还是 -y
     inward_y_sign: float = 1.0
+    # 额外的关节限位（度），与 URDF 限位、舵机行程限位取交集。
+    # 用于避让两臂之间的相机中柱：肩部旋转正方向是向右转
+    joint_limits: dict[str, tuple[float, float]] = field(default_factory=dict)
     # 覆盖全局 home 里的个别关节。主要用于 wrist_roll：要让腕部相机画面是正的
     home: dict[str, float] = field(default_factory=dict)
 
@@ -137,8 +140,15 @@ class Config:
     server: ServerConfig = field(default_factory=ServerConfig)
     arms: dict[str, ArmConfig] = field(
         default_factory=lambda: {
-            "left": ArmConfig(calibration_id="left", camera="wrist_left", inward_y_sign=-1.0),
-            "right": ArmConfig(calibration_id="right", camera="wrist_right", inward_y_sign=1.0),
+            # 中柱避让：左臂末端不超过前偏右 30°，右臂不超过前偏左 30°
+            "left": ArmConfig(
+                calibration_id="left", camera="wrist_left", inward_y_sign=-1.0,
+                joint_limits={"shoulder_pan": (-110.0, 30.0)},
+            ),
+            "right": ArmConfig(
+                calibration_id="right", camera="wrist_right", inward_y_sign=1.0,
+                joint_limits={"shoulder_pan": (-30.0, 110.0)},
+            ),
         }
     )
     head: HeadConfig = field(default_factory=HeadConfig)

@@ -49,6 +49,11 @@ class ArmBody(BaseModel):
     arm: str
 
 
+class ArmEnableBody(BaseModel):
+    arm: str
+    enabled: bool
+
+
 def build_controller(cfg: Config) -> Controller:
     detector_factory = partial(
         make_detector,
@@ -121,6 +126,11 @@ def create_app(cfg: Config) -> FastAPI:
     @app.post("/api/torque")
     def post_torque(body: FlagBody):
         command(controller.set_torque, body.active)
+        return {"ok": True}
+
+    @app.post("/api/arm/enable")
+    def post_arm_enable(body: ArmEnableBody):
+        command(controller.set_arm_enabled, body.arm, body.enabled)
         return {"ok": True}
 
     @app.post("/api/reconnect")
