@@ -105,16 +105,16 @@ class FollowConfig:
     # 跟随控制器。smooth：自适应滤波 + 加速度连续的二阶跟踪；legacy：固定权重混合 + 比例限速
     controller: str = "smooth"
     # ---- smooth 控制器的参数 ----
-    filter_min_cutoff: float = 0.8  # 手几乎不动时的滤波截止频率（Hz）。越小越稳，但慢动作的滞后越大
+    filter_min_cutoff: float = 1.5  # 手几乎不动时的滤波截止频率（Hz）。越小越稳，但慢动作的滞后越大
     filter_beta: float = 0.05  # 截止频率随手的角速度升高的速率（Hz 每 度/秒）。越大快动作越跟手
-    filter_d_cutoff: float = 3.0  # 估计角速度时用的截止频率（Hz）
+    filter_d_cutoff: float = 5.0  # 估计角速度时用的截止频率（Hz）
     soft_deadzone: float = 0.015  # 归一化画面坐标内的小死区。滤波已经压住了噪声，不需要大的死区
     # 估计出的角速度低于第一个值时完全不用它，高于第二个值时全额使用，中间平滑过渡（度/秒）。
     # 手静止时的“速度”全是检测噪声的差分，拿它做预判和前馈只会让手臂抖
-    velocity_gate_deg_s: tuple[float, float] = (12.0, 30.0)
-    # 按角速度向前预判的角度上限，0 表示不预判。模拟里：不预判时时间滞后约 190 ms；上限 4.5° 时约
-    # 155 ms、手掉头处冲过头约 1.5°；上限 10° 时约 100 ms，但冲过头 7°、最大偏差反而变大
-    max_lead_deg: float = 4.5
+    velocity_gate_deg_s: tuple[float, float] = (4.0, 12.0)
+    # 按角速度向前预判的角度上限，0 表示不预判。用来补观测延迟：延迟越长越需要它。
+    # 预判越多时间滞后越小，但手掉头时冲过头越多（模拟里上限 6° 时约 4°，上限 10° 时约 7°）
+    max_lead_deg: float = 6.0
     smooth_time: float = 0.08  # 二阶跟踪的时间常数（秒）。越小追得越紧
     max_accel_deg_s2: float = 2000.0  # 指令角加速度上限
     return_time: float = 0.5  # 回初始位时的时间常数（秒）

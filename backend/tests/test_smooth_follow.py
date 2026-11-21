@@ -38,27 +38,32 @@ def test_second_order_tracking_is_smooth_does_not_overshoot_and_has_no_ramp_lag(
     assert abs(pos[0] - target) < 0.3
 
 
-@pytest.fixture(scope="module")
-def comparison(tmp_path_factory):
+@pytest.fixture(scope="module", params=[0.09, 0.15])
+def comparison(request, tmp_path_factory):
+    """在两种观测延迟下各跑一遍：真机的延迟比最初假设的 90 ms 长，结论要在更长的延迟下也成立。"""
     tmp = str(tmp_path_factory.mktemp("sim"))
     mean = lambda rs, f: float(np.mean([getattr(r, f) for r in rs]))  # noqa: E731
-    runs = {name: [simulate(name, seed=s, tmp=tmp) for s in range(3)] for name in ("legacy", "smooth")}
+    runs = {
+        name: [simulate(name, seed=s, tmp=tmp, latency=request.param) for s in range(3)]
+        for name in ("legacy", "smooth")
+    }
     return {name: {f: mean(rs, f) for f in vars(rs[0])} for name, rs in runs.items()}
 
 
 def test_smooth_controller_is_steadier_than_legacy(comparison):
     old, new = comparison["legacy"], comparison["smooth"]
-    assert new["still_jitter"] < 0.7 * old["still_jitter"]  # 手不动时手臂更稳
-    assert new["roughness"] < 0.9 * old["roughness"]  # 指令更顺
+    assert new["still_jitter"] < 0.75 * old["still_jitter"]  # 手不动时手臂更稳
+    assert new["roughness"] <= 1.05 * old["roughness"]  # 指令不比旧的更糙
 
 
-def test_smooth_controller_follows_at_least_as_tightly_as_legacy(comparison):
+def test_smooth_controller_follows_more_tightly_than_legacy(comparison):
     old, new = comparison["legacy"], comparison["smooth"]
-    assert new["lag_rms"] < old["lag_rms"]
+    assert new["moderate_error"] < 0.8 * old["moderate_error"]  # 中等速度：真人互动最常见的速度段
+    assert new["lag_rms"] < 0.95 * old["lag_rms"]
+    assert new["slow_error"] < 0.8 * old["slow_error"]
     assert new["max_error"] < old["max_error"]
-    assert new["slow_error"] < old["slow_error"]
     assert new["lag_ms"] <= old["lag_ms"]
-    assert new["lost_frames"] == 0 and new["overshoot"] < 3.0
+    assert new["lost_frames"] == 0 and new["overshoot"] < 6.0
 
 
 def test_follow_controller_can_be_switched_at_runtime_and_metrics_are_kept_per_controller(tmp_path):

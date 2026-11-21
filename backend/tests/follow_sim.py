@@ -88,16 +88,21 @@ def hand_path(t: float) -> np.ndarray:
         return np.array([c - 20 + 12 * np.sin(2 * np.pi * 1.0 * s), 5 + 8 * np.sin(1.0) + 5 * np.sin(2 * np.pi * 1.0 * s)])
     if t < 24:
         return np.array([c - 20, 5 + 8 * np.sin(1.0)])
-    # 人手“停着”时的样子：缓慢漂移（3°/秒）加一点轻微颤动。硬死区在这种输入下会走走停停
-    s = t - 24
-    drift = 3.0 * s if s < 3 else 3.0 * (6 - s)
-    return np.array([c - 20 + drift + 0.4 * np.sin(2 * np.pi * 2.5 * s), 5 + 8 * np.sin(1.0) + 0.3 * np.sin(2 * np.pi * 1.7 * s)])
+    if t < 30:
+        # 人手“停着”时的样子：缓慢漂移（3°/秒）加一点轻微颤动。硬死区在这种输入下会走走停停
+        s = t - 24
+        drift = 3.0 * s if s < 3 else 3.0 * (6 - s)
+        return np.array([c - 20 + drift + 0.4 * np.sin(2 * np.pi * 2.5 * s), 5 + 8 * np.sin(1.0) + 0.3 * np.sin(2 * np.pi * 1.7 * s)])
+    # 中等速度的往复（0.3 Hz，幅度 12°，峰值约 23°/秒）：真人互动里最常见的速度段
+    s = t - 30
+    return np.array([c - 20 + 12 * np.sin(2 * np.pi * 0.3 * s), 5 + 8 * np.sin(1.0) + 6 * np.sin(2 * np.pi * 0.3 * s + 0.7)])
 
 
 STILL = [(1.5, 4.0), (11.0, 13.0), (22.0, 24.0)]  # 手静止且已稳定的时间段
 MOVING = [(4.5, 10.0), (13.5, 17.0), (17.5, 21.0)]
 SLOW = [(24.5, 30.0)]  # 缓慢漂移
-DURATION = 30.0
+MODERATE = [(31.0, 40.0)]  # 中等速度往复
+DURATION = 40.0
 
 
 @dataclass
@@ -111,6 +116,7 @@ class Result:
     overshoot: float  # 匀速扫动掉头处手臂冲过头的最大角度（度）
     slow_roughness: float  # 手缓慢漂移时手臂实际角速度的起伏（标准差，度/秒）：走走停停会很大
     slow_error: float  # 手缓慢漂移时的偏差均方根（度）
+    moderate_error: float  # 中等速度往复时的偏差均方根（度）
 
 
 def simulate(controller: str, noise: float = 0.012, latency: float = 0.09, seed: int = 0, tmp: str = "/tmp",
@@ -199,8 +205,10 @@ def simulate(controller: str, noise: float = 0.012, latency: float = 0.09, seed:
     hand_speed = np.diff(hand[slow][:, 0]) / TICK
     slow_rough = float(np.std(arm_speed - hand_speed))
     slow_err = float(np.sqrt(np.mean((hand[slow] - arm[slow]) ** 2)))
+    mod = mask(MODERATE)
+    mod_err = float(np.sqrt(np.mean((hand[mod] - arm[mod]) ** 2)))
     return Result(jitter, float(np.sqrt(np.mean(rough))), float(np.sqrt(np.mean(err**2))), best_lag * 1000,
-                  float(np.abs(err).max()), lost, over, slow_rough, slow_err)
+                  float(np.abs(err).max()), lost, over, slow_rough, slow_err, mod_err)
 
 
 def main() -> None:
@@ -208,11 +216,14 @@ def main() -> None:
 
     tmp = tempfile.mkdtemp()
     fields = [("still_jitter", "静止抖动 °"), ("slow_roughness", "慢漂时速度起伏 °/s"), ("slow_error", "慢漂时偏差 °"),
+              ("moderate_error", "中速往复偏差 °"),
               ("roughness", "指令粗糙度 °/s²"), ("lag_rms", "运动偏差 °"), ("lag_ms", "时间滞后 ms"),
               ("max_error", "最大偏差 °"), ("overshoot", "掉头冲过头 °"), ("lost_frames", "丢失帧")]
     results = {}
+    latency = float(sys.argv[1]) if len(sys.argv) > 1 else 0.09
+    print(f"观测延迟 {latency * 1000:.0f} ms")
     for name in ("legacy", "smooth"):
-        runs = [simulate(name, seed=s, tmp=tmp) for s in range(4)]
+        runs = [simulate(name, seed=s, tmp=tmp, latency=latency) for s in range(4)]
         results[name] = {f: float(np.mean([getattr(r, f) for r in runs])) for f, _ in fields}
     print(f"{'指标':<22}{'旧 legacy':>12}{'新 smooth':>12}{'变化':>10}")
     for f, label in fields:
