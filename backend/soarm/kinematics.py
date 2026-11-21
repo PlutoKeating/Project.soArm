@@ -115,6 +115,23 @@ class ArmKinematics:
                 T = T @ R
         return T, roll_origin
 
+    def skeleton(self, joints_deg: dict[str, float]) -> np.ndarray:
+        """手臂骨架：各活动关节的原点加上夹爪参考点，按从肩到指尖的顺序，基座系，(N, 3)。
+
+        相邻两点之间的线段就是一段连杆的轴线，用于把深度相机看到的手臂点云对到模型上。
+        """
+        T = np.eye(4)
+        points = []
+        for j in self.chain:
+            T = T @ j.origin
+            if not j.fixed:
+                points.append(T[:3, 3].copy())
+                R = np.eye(4)
+                R[:3, :3] = _axis_angle(j.axis, np.deg2rad(joints_deg.get(j.name, 0.0)))
+                T = T @ R
+        points.append(T[:3, 3].copy())
+        return np.array(points)
+
     def fk(self, joints_deg: dict[str, float]) -> np.ndarray:
         """夹爪参考点在基座系下的 4x4 位姿。"""
         return self._frames(joints_deg)[0]

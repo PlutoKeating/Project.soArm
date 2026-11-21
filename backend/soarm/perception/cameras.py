@@ -336,6 +336,14 @@ class CameraWorker:
         with self._lock:
             return len(self._hands)
 
+    def latest(self) -> tuple[np.ndarray, np.ndarray | None, float] | None:
+        """最新一帧的 (彩色, 深度/米, 采集时刻) 副本；还没有画面时返回 None。"""
+        with self._lock:
+            if self._frame is None:
+                return None
+            depth = None if self._depth is None else self._depth.copy()
+            return self._frame.copy(), depth, self._frame_time
+
     def point_at(self, u_norm: float, v_norm: float) -> np.ndarray | None:
         """归一化像素处的 3D 点（相机光学系）。仅深度相机可用，标定时使用。"""
         with self._lock:

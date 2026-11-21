@@ -355,6 +355,154 @@ def cmd_solve_calib(args: argparse.Namespace) -> int:
     return 0 if solved else 1
 
 
+# 手眼标定时让手臂抬高前伸进入深度相机视野的姿态：(肩部俯仰, 肘部, 腕部俯仰)
+_BODY_SHAPES = [(-45, 20, 15), (-30, 15, 5), (-60, 25, 20), (-40, 5, 20), (-50, 35, -15), (-70, 40, 0)]
+# 肩部旋转相对“正前方”的偏角，正值表示朝外侧（远离中柱）
+_BODY_PANS_OUTWARD = [-20, 5, 30, 50]
+
+
+def cmd_body_calib(args: argparse.Namespace) -> int:
+    """用机械臂自身做手眼标定：让一只臂摆若干姿态，用深度相机看到的手臂点云对运动学骨架。
+
+    不需要人手和标定板。要求这只臂的串口当前没有被别的程序占用（生产运行时先
+    scripts/lab.sh lend <臂> 借出来）。被要求让路时会立刻松开串口并退出，舵机力矩不变。
+    """
+    import json
+
+    import cv2
+    import numpy as np
+
+    from . import lab
+    from .calib import ArmExtrinsic, BodyObservation, Calibration, solve_from_body
+    from .control.controller import Controller
+    from .kinematics import ARM_JOINTS
+    from .perception.cameras import CameraWorker, deproject
+    from .robot.real import RealArm
+
+    cfg = load_config(args.config)
+    name = args.arm
+    if name not in cfg.arms or not cfg.arms[name].port:
+        sys.exit(f"请先在配置里填写 arms.{name}.port")
+    cfg.arms = {name: cfg.arms[name]}
+    head_cfg = cfg.cameras[cfg.head_camera]
+    head_cfg.detect = False
+    out_dir = cfg.path(cfg.calibration_dir) / f"body_{name}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    lab.claim()
+    worker = CameraWorker(cfg.head_camera, head_cfg, cfg.detector, lambda: None)
+    worker.start()
+    ctl = Controller(cfg, {name: RealArm(name, cfg.arms[name], cfg.safety)}, None, {cfg.head_camera: worker})
+    finished = False
+    try:
+        ctl.start()
+        rt = ctl.arms[name]
+        if not rt.arm.connected:
+            sys.exit(f"无法连接 {name}: {rt.arm.error}")
+        for _ in range(60):
+            if worker.latest() is not None and worker.intrinsics is not None:
+                break
+            time.sleep(0.1)
+        else:
+            sys.exit(f"深度相机没有画面: {worker.error}")
+        intr = worker.intrinsics
+
+        def depth_median(n: int = 8) -> tuple[np.ndarray, np.ndarray]:
+            frames, color, last = [], None, 0.0
+            while len(frames) < n:
+                color, depth, t = worker.latest()
+                if t > last:
+                    frames.append(depth)
+                    last = t
+                time.sleep(0.02)
+            stack = np.stack(frames)
+            stack[stack <= 0.05] = np.nan
+            with np.errstate(all="ignore"):
+                med = np.nanmedian(stack, axis=0)
+            return color, np.nan_to_num(med, nan=0.0)
+
+        # 背景：手臂还在连接时的姿态（不在相机视野里）
+        _, background = depth_median(12)
+        outward = 1.0 if rt.cfg.inward_y_sign > 0 else -1.0  # 右臂朝外是 +pan（向右），左臂相反
+        poses = []
+        for i, pan in enumerate(_BODY_PANS_OUTWARD):
+            for lift, elbow, wf in (_BODY_SHAPES[i % len(_BODY_SHAPES)], _BODY_SHAPES[(i + 3) % len(_BODY_SHAPES)],
+                                    _BODY_SHAPES[(i + 1) % len(_BODY_SHAPES)]):
+                poses.append({"shoulder_pan": outward * pan, "shoulder_lift": lift, "elbow_flex": elbow,
+                              "wrist_flex": wf, "wrist_roll": rt.home["wrist_roll"], "gripper": 0.0})
+        poses = poses[: args.poses]
+        observations, records = [], []
+        print(f"{name} 臂将依次摆 {len(poses)} 个姿态，每个约 3-5 秒。Ctrl+C 或被要求让路时立即停止。")
+        for i, pose in enumerate(poses):
+            ctl.goto_pose(name, pose, "calib")
+            deadline = time.monotonic() + 20
+            while ctl.is_moving(name) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            if ctl.is_moving(name) or "阻挡" in rt.status:
+                print(f"  姿态 {i + 1}: 没能到位（{rt.status}），跳过")
+                continue
+            time.sleep(0.9)
+            color, depth = depth_median()
+            joints = {j: rt.pos[j] for j in ARM_JOINTS}
+            # 前景：比背景近的点。只取 1 米以内，排除远处走动的人
+            fg = (depth > 0.12) & (depth < 1.0) & ((background < 0.05) | (depth < background - 0.04))
+            fg = cv2.erode(fg.astype(np.uint8), np.ones((3, 3), np.uint8)).astype(bool)
+            vs, us = np.nonzero(fg)
+            if len(vs) > 600:
+                pick = np.random.default_rng(i).choice(len(vs), 600, replace=False)
+                vs, us = vs[pick], us[pick]
+            pts = np.array([deproject(intr, u, v, depth[v, u]) for u, v in zip(us, vs)]).reshape(-1, 3)
+            skeleton = ctl.kin.skeleton(joints)
+            print(f"  姿态 {i + 1}/{len(poses)}: pan {joints['shoulder_pan']:.0f}° "
+                  f"夹爪尖 ({skeleton[-1][0]:.2f}, {skeleton[-1][1]:.2f}, {skeleton[-1][2]:.2f})  前景点 {len(pts)}")
+            cv2.imwrite(str(out_dir / f"pose_{i:02d}.jpg"), color)
+            np.save(out_dir / f"pose_{i:02d}_depth.npy", depth.astype(np.float32))
+            records.append({"joints": joints, "skeleton": skeleton.tolist(), "points": pts.tolist()})
+            if len(pts) >= 40:
+                observations.append(BodyObservation(skeleton, pts))
+        (out_dir / "observations.json").write_text(json.dumps({
+            "pitch_down_deg": args.pitch, "intrinsics": [intr.fx, intr.fy, intr.cx, intr.cy], "records": records,
+        }))
+        np.save(out_dir / "background_depth.npy", background.astype(np.float32))
+        print(f"有效姿态 {len(observations)}/{len(poses)}，原始数据已存到 {out_dir}")
+        T, rms, used = solve_from_body(observations, args.pitch)
+        print(f"求解：采用 {used} 个点，点到手臂表面的 RMS {rms * 1000:.0f} mm")
+        print(f"  相机在 {name} 臂基座系下的位置 x={T[0, 3]:.3f} y={T[1, 3]:.3f} z={T[2, 3]:.3f} m；"
+              f"光轴方向 {np.round(T[:3, 2], 2).tolist()}")
+        # 把骨架投影回每张彩色图，供人工核对
+        T_inv = np.linalg.inv(T)
+        for i, rec in enumerate(records):
+            img = cv2.imread(str(out_dir / f"pose_{i:02d}.jpg"))
+            if img is None:
+                continue
+            cam = np.array(rec["skeleton"]) @ T_inv[:3, :3].T + T_inv[:3, 3]
+            px = [(int(intr.fx * p[0] / p[2] + intr.cx), int(intr.fy * p[1] / p[2] + intr.cy)) for p in cam if p[2] > 0.05]
+            for a, b in zip(px[:-1], px[1:]):
+                cv2.line(img, a, b, (0, 255, 255), 2)
+            for p in px:
+                cv2.circle(img, p, 4, (0, 0, 255), -1)
+            cv2.imwrite(str(out_dir / f"check_{i:02d}.jpg"), img)
+        if not args.dry_run:
+            path = cfg.path(cfg.calibration_dir) / "extrinsics.yaml"
+            calibration = Calibration.load(path)
+            calibration.arms[name] = ArmExtrinsic(T, rms, used)
+            calibration.head_preset = calibration.head_preset or {"pan": 0.0, "tilt": 0.0}
+            calibration.save(path)
+            print(f"已保存到 {path}")
+        finished = True
+        return 0
+    except KeyboardInterrupt:
+        print("\n被要求让路：立即松开串口，舵机力矩保持。")
+        return 130
+    finally:
+        if finished:
+            ctl.shutdown()  # 正常结束：收到休息位并释放力矩
+        else:
+            ctl.abort()  # 中途让路：不收手、不动力矩，生产会接管
+        worker.stop()
+        lab.release()
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="soarm-tools", description="SO-ARM 演示套件的上电准备工具")
     parser.add_argument("--config", help="配置文件路径，默认 config/config.yaml")
@@ -388,6 +536,13 @@ def main() -> None:
     p.add_argument("samples", nargs="?", default="calibration/bearing_samples.jsonl")
     p.add_argument("--dry-run", action="store_true", help="只求解和打印，不保存")
     p.set_defaults(func=cmd_solve_calib)
+
+    p = sub.add_parser("body-calib", help="用机械臂自身做手眼标定（不需要人手）")
+    p.add_argument("arm")
+    p.add_argument("--pitch", type=float, required=True, help="深度相机低头的角度（度），由地面测得")
+    p.add_argument("--poses", type=int, default=12)
+    p.add_argument("--dry-run", action="store_true", help="只采集和求解，不保存外参")
+    p.set_defaults(func=cmd_body_calib)
 
     p = sub.add_parser("head-watch", help="释放云台力矩并显示原始刻度")
     p.set_defaults(func=cmd_head_watch)

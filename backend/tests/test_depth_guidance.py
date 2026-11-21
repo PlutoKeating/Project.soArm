@@ -294,3 +294,67 @@ def test_depth_cue_guides_only_the_arm_that_cannot_see_while_the_other_keeps_fol
     assert "深度引导" in rig.ctl.arms["right"].status
     snap = rig.ctl.snapshot()
     assert snap["arms"]["left"]["fused_selected"] and snap["arms"]["right"]["fused_selected"]
+
+
+# ---------------------------------------------------------------- 用机械臂自身做手眼标定
+from soarm.calib import BodyObservation, solve_from_body  # noqa: E402
+
+
+def _body_observations(T, n_poses=12, noise=0.004, clutter=0, seed=0):
+    """按真实骨架在连杆表面撒点，换到相机系。clutter 是每个姿态混入的无关点数。"""
+    rng = np.random.default_rng(seed)
+    T_inv = np.linalg.inv(T)
+    out = []
+    for _ in range(n_poses):
+        joints = dict(HOME)
+        joints.update({
+            "shoulder_pan": rng.uniform(-25, 55), "shoulder_lift": rng.uniform(-80, -30),
+            "elbow_flex": rng.uniform(10, 60), "wrist_flex": rng.uniform(-10, 30),
+        })
+        skel = KIN.skeleton(joints)
+        pts = []
+        for a, b in zip(skel[1:-1], skel[2:]):  # 只有前臂和夹爪进入相机视野
+            for _ in range(60):
+                axis = (b - a) / np.linalg.norm(b - a)
+                side = np.cross(axis, rng.normal(size=3))
+                side /= np.linalg.norm(side)
+                pts.append(a + rng.uniform(0, 1) * (b - a) + 0.022 * side)
+        pts = np.array(pts) + rng.normal(0, noise, (len(pts), 3))
+        if clutter:
+            pts = np.vstack([pts, rng.uniform([0.2, -0.5, -0.2], [0.9, 0.5, 0.6], (clutter, 3))])
+        out.append(BodyObservation(skel, pts @ T_inv[:3, :3].T + T_inv[:3, 3]))
+    return out
+
+
+def test_skeleton_runs_from_shoulder_to_gripper_tip():
+    skel = KIN.skeleton(HOME)
+    tip, _ = KIN.tip_and_pitch(HOME)
+    assert skel.shape == (6, 3)
+    assert np.allclose(skel[-1], tip)
+    assert np.linalg.norm(skel[0]) < 0.1  # 第一个点在基座附近
+
+
+def test_body_calibration_recovers_extrinsic_from_arm_point_clouds():
+    T = _true_extrinsic()
+    solved, rms, used = solve_from_body(_body_observations(T), pitch_down_deg=35.0)
+    assert np.allclose(solved[:3, 3], T[:3, 3], atol=0.015)
+    assert np.degrees(np.arccos(np.clip((np.trace(solved[:3, :3].T @ T[:3, :3]) - 1) / 2, -1, 1))) < 3.0
+    assert rms < 0.01 and used > 1000
+
+
+def test_body_calibration_tolerates_wrong_pitch_hint_and_clutter():
+    T = _true_extrinsic()
+    obs = _body_observations(T, clutter=25, seed=2)  # 约 17% 的点不属于手臂
+    solved, rms, _ = solve_from_body(obs, pitch_down_deg=45.0)  # 低头角度提示偏了 10°
+    assert np.allclose(solved[:3, 3], T[:3, 3], atol=0.03)
+
+
+def test_body_calibration_refuses_when_arm_is_not_visible():
+    T = _true_extrinsic()
+    obs = _body_observations(T, n_poses=3)
+    with pytest.raises(ValueError):
+        solve_from_body(obs, pitch_down_deg=35.0)
+    rng = np.random.default_rng(0)
+    junk = [BodyObservation(o.skeleton, rng.uniform(-1, 1, (150, 3)) + [0, 0, 2.5]) for o in _body_observations(T)]
+    with pytest.raises(ValueError):
+        solve_from_body(junk, pitch_down_deg=35.0)

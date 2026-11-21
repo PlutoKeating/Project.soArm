@@ -157,14 +157,18 @@ class RealHead(Head):
         )
         bus.connect()
         try:
-            bus.disable_torque(num_retry=3)
-            bus.configure_motors(acceleration=self.safety.acceleration)
-            for axis in self._axes:
-                bus.set_operating_mode("position", axis)
-                bus.write("Torque_Limit", axis, self.safety.max_torque_limit)
-            present = bus.sync_read("Present_Position", normalize=False, num_retry=3)
-            bus.sync_write("Goal_Position", present, normalize=False)
-            bus.enable_torque(num_retry=3)
+            holding = all(bus.sync_read("Torque_Enable", normalize=False, num_retry=3).values())
+            if not holding:
+                # 云台本来是松的：写入运行参数，再从当前位置上力矩
+                bus.disable_torque(num_retry=3)
+                bus.configure_motors(acceleration=self.safety.acceleration)
+                for axis in self._axes:
+                    bus.set_operating_mode("position", axis)
+                    bus.write("Torque_Limit", axis, self.safety.max_torque_limit)
+                present = bus.sync_read("Present_Position", normalize=False, num_retry=3)
+                bus.sync_write("Goal_Position", present, normalize=False)
+                bus.enable_torque(num_retry=3)
+            # 云台已经在靠力矩保持姿态时什么都不改：一关力矩相机就会掉下去，外参随之失效
         except Exception:
             bus.disconnect(disable_torque=False)
             raise
@@ -174,7 +178,8 @@ class RealHead(Head):
 
     def disconnect(self) -> None:
         if self._bus is not None and self._bus.is_connected:
-            self._bus.disconnect(disable_torque=True)
+            # 保持力矩：云台要一直撑住相机
+            self._bus.disconnect(disable_torque=False)
         self._bus = None
         self.connected = False
 

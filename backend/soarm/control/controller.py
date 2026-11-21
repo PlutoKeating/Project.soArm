@@ -290,6 +290,19 @@ class Controller:
                 target = rt.home if pose == "home" else (rt.rest or self.cfg.rest)
                 self._start_goto(rt, target, pose, release=release)
 
+    def goto_pose(self, arm: str, pose: dict[str, float], name: str = "pose") -> None:
+        """让一只臂以回位速度前往给定的关节姿态（会按本臂限位裁剪）。标定等工具使用。"""
+        with self._lock:
+            if self.estop:
+                raise RuntimeError("急停中，请先解除急停")
+            rt = self.arms[arm]
+            self._reset_motion(rt)
+            self._start_goto(rt, {**rt.target, **pose}, name)
+
+    def is_moving(self, arm: str) -> bool:
+        with self._lock:
+            return self.arms[arm].goto is not None
+
     def set_arm_enabled(self, arm: str, enabled: bool) -> None:
         """停用或启用一只臂。停用后它在任何模式下都只保持当前位置。"""
         with self._lock:
@@ -504,7 +517,7 @@ class Controller:
             rt.status = "已停用，保持"
         elif rt.goto is not None:
             desired, speed = dict(rt.goto), safety.home_speed_deg_s
-            rt.status = "回初始位" if rt.goto_name == "home" else "收到休息位"
+            rt.status = {"home": "回初始位", "rest": "收到休息位"}.get(rt.goto_name, "前往指定姿态")
         elif self.mode == "keyboard":
             desired = self._keyboard(name, rt, keys, dt)
         elif self.mode == "follow":

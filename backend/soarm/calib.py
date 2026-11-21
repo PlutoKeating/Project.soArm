@@ -144,6 +144,103 @@ def solve_from_bearings(samples: list[BearingSample]) -> tuple[np.ndarray, float
 
 
 @dataclass
+class BodyObservation:
+    """机械臂摆在某个姿态时，深度相机看到的属于手臂的点。"""
+
+    skeleton: np.ndarray  # 该姿态下的骨架点，臂基座系，(K, 3)
+    cam_points: np.ndarray  # 手臂表面的点，相机光学系，(N, 3)
+
+
+def _segment_distance(points: np.ndarray, skeleton: np.ndarray) -> np.ndarray:
+    """每个点到骨架折线的最近距离。"""
+    best = np.full(len(points), np.inf)
+    for a, b in zip(skeleton[:-1], skeleton[1:]):
+        ab = b - a
+        length2 = float(ab @ ab)
+        if length2 < 1e-10:
+            continue
+        t = np.clip((points - a) @ ab / length2, 0.0, 1.0)
+        best = np.minimum(best, np.linalg.norm(points - (a + t[:, None] * ab), axis=1))
+    return best
+
+
+def solve_from_body(
+    observations: list[BodyObservation],
+    pitch_down_deg: float,
+    link_radius: float = 0.022,
+) -> tuple[np.ndarray, float, int]:
+    """用机械臂自身当标定物求 T_base_cam。返回 (4x4 变换, 点到手臂表面的 RMS 距离/米, 采用的点数)。
+
+    让机械臂摆若干姿态，深度相机每次看到的手臂点云，换到基座系后都应该贴在该姿态的
+    骨架周围。对 6 个外参做多初值的非线性最小二乘。相机低头的角度可以从地面测出来，
+    用它缩小初值范围；相机大致在臂的上方、朝前，这一点也用来排初值。
+    """
+    if len(observations) < 4:
+        raise ValueError("至少需要 4 个姿态")
+    skeletons = [o.skeleton for o in observations]
+    clouds = [np.asarray(o.cam_points, float) for o in observations]
+    if sum(len(c) for c in clouds) < 200:
+        raise ValueError("手臂点云太少：相机可能看不到手臂")
+    cap = 0.08  # 残差封顶：远处的点（路人、线缆）不让它们主导结果
+
+    def residuals(params, R0):
+        R = R0 @ _rotvec_to_matrix(params[:3])
+        out = []
+        for skel, cloud in zip(skeletons, clouds):
+            d = _segment_distance(cloud @ R.T + params[3:], skel) - link_radius
+            out.append(np.clip(d, -cap, cap))
+        return np.concatenate(out)
+
+    def refine(R0, t0, iters=30):
+        params = np.concatenate([np.zeros(3), t0])
+        lam = 1e-2
+        res = residuals(params, R0)
+        cost = float(res @ res)
+        for _ in range(iters):
+            J = np.empty((res.size, 6))
+            for i in range(6):
+                step = np.zeros(6)
+                step[i] = 1e-4
+                J[:, i] = (residuals(params + step, R0) - res) / 1e-4
+            delta = np.linalg.solve(J.T @ J + lam * np.eye(6), -J.T @ res)
+            trial = params + delta
+            trial_res = residuals(trial, R0)
+            trial_cost = float(trial_res @ trial_res)
+            if trial_cost < cost:
+                params, res, cost, lam = trial, trial_res, trial_cost, max(lam / 3, 1e-8)
+                if float(np.linalg.norm(delta)) < 1e-7:
+                    break
+            else:
+                lam *= 4
+                if lam > 1e6:
+                    break
+        return R0 @ _rotvec_to_matrix(params[:3]), params[3:], cost
+
+    pitch = np.deg2rad(pitch_down_deg)
+    Ry = np.array([[np.cos(pitch), 0, np.sin(pitch)], [0, 1, 0], [-np.sin(pitch), 0, np.cos(pitch)]])
+    best = None
+    for yaw in (-30.0, -10.0, 10.0, 30.0):
+        cy, sy = np.cos(np.deg2rad(yaw)), np.sin(np.deg2rad(yaw))
+        R0 = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]]) @ Ry @ _NOMINAL_R
+        for x in (-0.15, 0.0, 0.15):
+            for y in (-0.35, -0.15, 0.15, 0.35):
+                for z in (0.3, 0.5):
+                    R, t, cost = refine(R0, np.array([x, y, z]), iters=12)
+                    if best is None or cost < best[2]:
+                        best = (R, t, cost)
+    R, t, _ = refine(best[0], best[1], iters=60)
+    dist = np.concatenate([
+        _segment_distance(cloud @ R.T + t, skel) - link_radius for skel, cloud in zip(skeletons, clouds)
+    ])
+    inliers = np.abs(dist) < cap
+    if inliers.mean() < 0.5:
+        raise ValueError(f"只有 {inliers.mean():.0%} 的点能贴到手臂模型上，标定不可信")
+    T = np.eye(4)
+    T[:3, :3], T[:3, 3] = R, t
+    return T, float(np.sqrt((dist[inliers] ** 2).mean())), int(inliers.sum())
+
+
+@dataclass
 class ArmExtrinsic:
     T_base_cam: np.ndarray
     rms: float
