@@ -528,6 +528,13 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
         lab.release()
 
 
+def cmd_watchdog(args: argparse.Namespace) -> int:
+    """无人值守看门狗：发现明显异常就让机械臂收到休息位、释放力矩并急停。"""
+    from .watchdog import run
+
+    return run(args.url, args.unit or None, dry_run=args.dry_run, max_seconds=args.seconds)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="soarm-tools", description="SO-ARM 演示套件的上电准备工具")
     parser.add_argument("--config", help="配置文件路径，默认 config/config.yaml")
@@ -569,6 +576,13 @@ def main() -> None:
                    help="相机朝向相对机械臂朝向的偏角（度），默认 0 即朝向一致；给 nan 则连它一起解")
     p.add_argument("--dry-run", action="store_true", help="只采集和求解，不保存外参")
     p.set_defaults(func=cmd_body_calib)
+
+    p = sub.add_parser("watchdog", help="无人值守看门狗：异常时收手、释放力矩并急停")
+    p.add_argument("--url", default="http://127.0.0.1:8000", help="运行中控制台的地址")
+    p.add_argument("--unit", default="soarm-console", help="控制台的 systemd 用户服务名；留空则不监视服务重启")
+    p.add_argument("--dry-run", action="store_true", help="演练：发现异常只报告，不让机械臂停下")
+    p.add_argument("--seconds", type=float, default=0.0, help="监视这么久后自动退出；0 表示一直监视")
+    p.set_defaults(func=cmd_watchdog)
 
     p = sub.add_parser("head-watch", help="释放云台力矩并显示原始刻度")
     p.set_defaults(func=cmd_head_watch)

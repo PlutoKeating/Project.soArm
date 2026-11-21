@@ -17,6 +17,7 @@ Python 包 `soarm`，位于 `backend/soarm/`。依赖由仓库根目录的 `pypr
 | `scripts/trial.sh start\|stop\|status` | 借一只臂在本 worktree 里做真机试运行 |
 | `uv run soarm-tools collect-calib [--prod URL]` | 旁路采集外参标定样本，不打断运行中的控制台 |
 | `uv run soarm-tools solve-calib [样本文件]` | 用旁路采集的样本离线求解外参 |
+| `uv run soarm-tools watchdog [--dry-run]` | 无人值守看门狗：异常时收到休息位、释放力矩并急停 |
 | `uv run soarm-tools head-watch` | 释放云台力矩并显示原始刻度 |
 
 ## 文件
@@ -29,6 +30,7 @@ soarm/
   calib.py                触点法外参标定
   tools.py                上电准备工具
   lab.py                  生产与开发试验之间的交接（进程登记与让路）
+  watchdog.py             无人值守看门狗的异常判定与安全停下动作
   assets/so101_new_calib.urdf   仅含运动学的 SO-101 URDF
   control/controller.py   模式状态机、三种模式、安全处理
   control/geometry.py     腕部相机视线与指向偏转量的几何换算
@@ -51,6 +53,7 @@ uv run pytest
 - `test_controller.py`：用模拟臂和假相机逐拍驱动控制器，覆盖三种模式与急停、限速、工作空间、受阻让位、单臂停用、中柱避让、两臂独立跟随与可选的单臂跟随。
 - `test_cameras.py`：相机线程在视野里择优选手与锁定的逻辑。
 - `test_depth_guidance.py`：视线几何、外参自动求解（含噪声与错配样本）、按真实几何成像的合成场景下的深度引导与自动标定。
+- `test_watchdog.py`：看门狗的各项判定（含不该误报的情况），以及对着模拟控制台走一遍安全停下。
 - `test_api.py`：经 HTTP / WebSocket 走一遍接口；检测器加载（未下载模型时跳过）。
 
 测试不打开任何串口或相机。
