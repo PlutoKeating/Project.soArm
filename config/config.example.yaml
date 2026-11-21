@@ -54,6 +54,7 @@ cameras:
 # safety:
 #   max_joint_speed_deg_s: 180  # 关节限速上限（度/秒）
 # follow:
+#   single_tracker: false       # true 则两只臂同一时刻至多一只在跟
 #   gain: 9                     # 越大越跟手，过大会抖
 #   max_speed_deg_s: 150        # 跟随最大转速（度/秒）
 #   smoothing: 0.7              # 越大越跟手，越小越稳

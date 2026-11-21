@@ -30,6 +30,18 @@ class Hand:
     t: float = 0.0  # 这一帧的采集时刻（time.monotonic），控制层据此区分新旧观测并补偿延迟
 
 
+def view_quality(hand: Hand) -> float:
+    """一只手在画面里“好不好跟”的评分，0-1。
+
+    综合三点：检测置信度、离画面中心的远近、在画面里的大小。越居中、越完整、
+    检测越稳，分数越高。
+    """
+    off = float(np.hypot(hand.cx - 0.5, hand.cy - 0.5)) / 0.707  # 0 在中心，1 在角上
+    centered = max(0.0, 1.0 - off)
+    sized = float(np.clip(hand.size / 0.35, 0.3, 1.0))  # 太小说明太远或只露出一部分
+    return hand.score * (0.4 + 0.6 * centered) * sized
+
+
 class HandDetector(ABC):
     @abstractmethod
     def detect(self, frame_bgr: np.ndarray, timestamp_ms: int) -> list[Hand]: ...

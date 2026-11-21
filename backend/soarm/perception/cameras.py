@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 
 from ..config import CameraConfig, DetectorConfig
-from .hand import HAND_CONNECTIONS, Hand, HandDetector
+from .hand import HAND_CONNECTIONS, Hand, HandDetector, view_quality
 
 logger = logging.getLogger(__name__)
 
@@ -281,27 +281,49 @@ class CameraWorker:
             if d is not None:
                 hand.xyz = deproject(self.intrinsics, u, v, d)
 
-    def _nearness(self, hand: Hand) -> float:
-        """越大越近。有深度用深度，否则用画面中的大小。"""
+    # 换手的滞回：别的手要比当前锁定的手好出这个倍数，并持续这么久，才换过去
+    SWITCH_RATIO = 1.5
+    SWITCH_HOLD_S = 0.5
+
+    def _rank(self, hand: Hand) -> float:
+        """选手用的评分，越大越好。深度相机按远近（越近越好），普通相机按视野质量。"""
         if hand.xyz is not None:
-            return -float(hand.xyz[2])
-        return hand.size
+            return 1.0 / max(float(hand.xyz[2]), 0.05)
+        return view_quality(hand)
 
     def _update_primary(self, hands: list[Hand], now: float) -> None:
-        """锁定最近的手；已锁定时优先延续同一只（按画面位置就近匹配），直到它消失。"""
+        """在本相机视野里选出最优的一只手并锁定。
+
+        已锁定时按画面位置就近延续同一只手，避免在两只差不多的手之间来回跳；
+        只有另一只手明显更好并持续一小段时间，或锁定的手消失了，才换。
+        """
         if self._depth is not None:
             hands = [h for h in hands if h.xyz is not None]
         if not hands:
             if now - self._primary_time > 0.4:
                 self._primary = None
+            self._challenger_since = None
             return
+        best = max(hands, key=self._rank)
         prev = self._primary
         if prev is not None:
-            nearest = min(hands, key=lambda h: (h.cx - prev.cx) ** 2 + (h.cy - prev.cy) ** 2)
-            if np.hypot(nearest.cx - prev.cx, nearest.cy - prev.cy) < 0.25:
-                self._primary, self._primary_time = nearest, now
+            same = min(hands, key=lambda h: (h.cx - prev.cx) ** 2 + (h.cy - prev.cy) ** 2)
+            if np.hypot(same.cx - prev.cx, same.cy - prev.cy) < 0.25:
+                if best is not same and self._rank(best) > self._rank(same) * self.SWITCH_RATIO:
+                    if self._challenger_since is None:
+                        self._challenger_since = now
+                    if now - self._challenger_since >= self.SWITCH_HOLD_S:
+                        self._challenger_since = None
+                        self._primary, self._primary_time = best, now
+                        return
+                else:
+                    self._challenger_since = None
+                self._primary, self._primary_time = same, now
                 return
-        self._primary, self._primary_time = max(hands, key=self._nearness), now
+        self._challenger_since = None
+        self._primary, self._primary_time = best, now
+
+    _challenger_since: float | None = None
 
     # ---------- 对外读取 ----------
     def primary_hand(self, max_age_s: float = 0.4) -> Hand | None:

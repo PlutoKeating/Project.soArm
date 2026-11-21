@@ -23,6 +23,7 @@ from ..calib import Calibration, CalibSession
 from ..config import ArmConfig, Config
 from ..kinematics import ARM_JOINTS, IK_JOINTS, ArmKinematics
 from ..perception.cameras import CameraWorker
+from ..perception.hand import view_quality
 from ..robot.base import JOINTS, Arm, Head
 
 logger = logging.getLogger(__name__)
@@ -566,10 +567,7 @@ class Controller:
         hand = cam.primary_hand() if cam else None
         if hand is None or hand.score < self.cfg.follow.min_hand_score:
             return 0.0
-        off = float(np.hypot(hand.cx - 0.5, hand.cy - 0.5)) / 0.707  # 0 在中心，1 在角上
-        centered = max(0.0, 1.0 - off)
-        sized = float(np.clip(hand.size / 0.35, 0.3, 1.0))  # 太小说明太远或只露出一部分
-        return hand.score * (0.4 + 0.6 * centered) * sized
+        return view_quality(hand)
 
     def _follow_select(self, now: float) -> None:
         """两只臂同一时刻至多一只在跟随：选视野最好的那只，带滞回。"""
@@ -836,6 +834,14 @@ class Controller:
             cam.overlay_active = self.mode == "fused" and self._fused_point is not None
             cam.overlay_text = f"-> {self._fused_arm}" if cam.overlay_active else ""
 
+    def _is_tracking(self, name: str, rt: ArmRuntime) -> bool:
+        """腕部跟随模式下这只臂当前是否正在跟一只手（用于界面高亮）。"""
+        if self.mode != "follow":
+            return False
+        if self.cfg.follow.single_tracker:
+            return self._follow_arm == name
+        return rt.aim is not None and rt.lost_since is None
+
     @staticmethod
     def _hand_info(hand) -> dict | None:
         """主手的画面位置与（深度相机上的）3D 坐标，供界面显示和现场排查。"""
@@ -875,7 +881,7 @@ class Controller:
                     "calib_samples": self.calib_session.count(name),
                     "fused_selected": (self.mode == "fused" and self._fused_arm == name
                                        and self._fused_point is not None)
-                    or (self.mode == "follow" and self._follow_arm == name),
+                    or self._is_tracking(name, rt),
                     "view_quality": round(self._view_quality(rt), 2),
                 }
             cams = {
