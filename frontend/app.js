@@ -324,8 +324,8 @@ function bindButtons() {
   $("#auto-solve").addEventListener("click", async () => {
     const res = await post("/api/calib/auto/solve", { arm: calibArm() });
     if (!res) return;
-    $("#calib-result").textContent = res.method === "refine"
-      ? `已精修并保存：采用 ${res.samples} / ${res.collected} 对，视线偏差 ${res.rms_deg.toFixed(1)}°，相机位置调整 ${(res.moved_m * 100).toFixed(1)} cm`
+    $("#calib-result").textContent = res.method === "wrist_offset"
+      ? `已保存腕部相机安装偏角：偏右 ${res.yaw_right_deg.toFixed(1)}°，偏上 ${res.pitch_up_deg.toFixed(1)}°（采用 ${res.samples} / ${res.collected} 对，散布 ${res.spread_deg.map((v) => v.toFixed(0)).join("° / ")}°）`
       : `已保存：采用 ${res.samples} / ${res.collected} 对，偏差 ${(res.rms * 1000).toFixed(0)} mm`;
   });
   $("#auto-clear").addEventListener("click", () => post("/api/calib/auto/clear", { arm: calibArm() }));

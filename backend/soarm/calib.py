@@ -208,6 +208,51 @@ def refine_from_bearings(
     return T, rms, int(keep.sum())
 
 
+def estimate_wrist_offset(
+    samples: list[BearingSample],
+    T_base_cam: np.ndarray,
+    initial: tuple[float, float] = (0.0, 0.0),
+    gate_deg: float = 22.0,
+) -> tuple[tuple[float, float], int, tuple[float, float]]:
+    """由配对样本估计腕部相机光轴相对夹爪指向的安装偏角。
+
+    样本里的视线是按“光轴与夹爪指向重合”算的；深度相机测到的手的方向相对它的偏差，
+    在各个样本里应当是同一个固定角度，这就是安装偏角。返回
+    ((偏右, 偏上), 采用的样本数, (两个方向的散布/度))。
+
+    展会上很多配对不是同一只手，所以用迭代的中位数：只在当前估计附近 gate_deg 以内的
+    样本里取中位数，从 initial 出发收敛。
+    """
+    origins = np.array([s.origin for s in samples], float)
+    dirs = np.array([s.direction for s in samples], float)
+    pts = np.array([s.cam_point for s in samples], float)
+    if len(samples) < MIN_BEARING_SAMPLES:
+        raise ValueError(f"至少需要 {MIN_BEARING_SAMPLES} 个配对样本，当前 {len(samples)} 个")
+    v = pts @ T_base_cam[:3, :3].T + T_base_cam[:3, 3] - origins
+    v /= np.linalg.norm(v, axis=1)[:, None]
+    world_up = np.array([0.0, 0.0, 1.0])
+    up = world_up - (dirs @ world_up)[:, None] * dirs
+    up /= np.linalg.norm(up, axis=1)[:, None]
+    right = np.cross(dirs, up)
+    along = np.einsum("ij,ij->i", v, dirs)
+    e_right = np.degrees(np.arctan2(np.einsum("ij,ij->i", v, right), along))
+    e_up = np.degrees(np.arctan2(np.einsum("ij,ij->i", v, up), along))
+    estimate = np.array(initial, float)
+    near = np.zeros(len(samples), bool)
+    for _ in range(8):
+        near = np.hypot(e_right - estimate[0], e_up - estimate[1]) < gate_deg
+        if int(near.sum()) < MIN_BEARING_SAMPLES:
+            raise ValueError(f"相互一致的配对只有 {int(near.sum())} 个，至少需要 {MIN_BEARING_SAMPLES} 个")
+        updated = np.array([np.median(e_right[near]), np.median(e_up[near])])
+        if np.allclose(updated, estimate, atol=0.05):
+            break
+        estimate = updated
+    spread = (float(e_right[near].std()), float(e_up[near].std()))
+    if max(spread) > 9.0:
+        raise ValueError(f"样本散布太大（{spread[0]:.0f}° / {spread[1]:.0f}°），估计不可信")
+    return (float(estimate[0]), float(estimate[1])), int(near.sum()), spread
+
+
 @dataclass
 class BodyObservation:
     """机械臂摆在某个姿态时，深度相机看到的属于手臂的点。"""
@@ -471,6 +516,8 @@ class ArmExtrinsic:
     # 标定时地面法线在相机系下的方向（朝上）。云台俯仰变了之后，用当前测到的地面法线
     # 与它比较，就能把外参换算到当前俯仰下
     up_cam: np.ndarray | None = None
+    # 这只臂腕部相机光轴相对夹爪指向的安装偏角 (偏右, 偏上)，度。由自动样本估计
+    wrist_offset: tuple[float, float] = (0.0, 0.0)
 
     def at(self, up_now: np.ndarray | None) -> np.ndarray:
         """当前俯仰下的 T_base_cam。up_now 是此刻地面法线在相机系下的方向。
@@ -500,6 +547,7 @@ class Calibration:
             name: ArmExtrinsic(
                 np.array(a["T_base_cam"], float), float(a["rms"]), int(a["samples"]),
                 None if a.get("up_cam") is None else np.array(a["up_cam"], float),
+                tuple(float(v) for v in a.get("wrist_offset", (0.0, 0.0))),
             )
             for name, a in (data.get("arms") or {}).items()
         }
@@ -515,6 +563,7 @@ class Calibration:
                     "rms": round(a.rms, 5),
                     "samples": a.samples,
                     "up_cam": None if a.up_cam is None else [round(float(v), 5) for v in a.up_cam],
+                    "wrist_offset": [round(float(v), 2) for v in a.wrist_offset],
                 }
                 for name, a in self.arms.items()
             },

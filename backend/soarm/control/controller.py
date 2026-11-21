@@ -24,8 +24,8 @@ from ..calib import (
     BearingSample,
     Calibration,
     CalibSession,
+    estimate_wrist_offset,
     fit_floor_normal,
-    refine_from_bearings,
     solve_from_bearings,
 )
 from ..config import ArmConfig, Config
@@ -751,7 +751,7 @@ class Controller:
                 T = ext.T_base_cam
                 point = T[:3, :3] @ hand.xyz + T[:3, 3]
                 home = {j: rt.home[j] for j in ARM_JOINTS}
-                offsets = aim_offsets(self.kin, home, point, self._pan_dir, self._tilt_dir)
+                offsets = aim_offsets(self.kin, home, point, self._pan_dir, self._tilt_dir, ext.wrist_offset)
                 lo, hi = self._offset_limits(rt)
                 # 超出可转范围太多就够不着：留 20° 余量，因为腕部相机视野很宽
                 if np.all(offsets >= lo - 20.0) and np.all(offsets <= hi + 20.0):
@@ -838,6 +838,8 @@ class Controller:
         samples = self.auto_samples[name]
         if samples and np.linalg.norm(samples[-1].cam_point - head_hand.xyz) < fc.auto_calib_spacing:
             return
+        # 样本里的视线一律按“光轴与夹爪指向重合”来算，这样估计出的就是完整的安装偏角，
+        # 不受当前已采用的偏角影响
         origin, direction = wrist_ray(
             self.kin, {j: rt.pos[j] for j in ARM_JOINTS}, wrist_hand.cx, wrist_hand.cy,
             cam.cfg.hfov_deg, self._aspect(cam),
@@ -886,15 +888,14 @@ class Controller:
         with self._lock:
             samples = self.auto_samples[arm]
             existing = self.calibration.arms.get(arm)
-            if existing is not None and existing.up_cam is not None:
-                # 已有带地面法线的外参：在它的基础上精修，只动转角和平移
-                up = existing.up_cam
-                T, rms_deg, used = refine_from_bearings(samples, existing.T_base_cam, up)
-                moved = float(np.linalg.norm(T[:3, 3] - existing.T_base_cam[:3, 3]))
-                self.calibration.arms[arm] = ArmExtrinsic(T, existing.rms, used, up)
+            if existing is not None:
+                # 已有外参：估计腕部相机的安装偏角。真机数据表明它才是引导偏差的主要来源
+                # （相机从夹爪上方斜着往下看），而不是深度相机的位置标得不准
+                offset, used, spread = estimate_wrist_offset(samples, existing.T_base_cam, existing.wrist_offset)
+                existing.wrist_offset = offset
                 self.calibration.save(self.calib_path)
-                return {"arm": arm, "rms_deg": rms_deg, "samples": used, "collected": len(samples),
-                        "moved_m": moved, "method": "refine"}
+                return {"arm": arm, "method": "wrist_offset", "yaw_right_deg": offset[0], "pitch_up_deg": offset[1],
+                        "samples": used, "collected": len(samples), "spread_deg": list(spread)}
             T, rms, used = solve_from_bearings(samples)
             self.calibration.arms[arm] = ArmExtrinsic(T, rms, used)
             if self.head_pos:
@@ -1192,6 +1193,7 @@ class Controller:
                     "moving_to": rt.goto_name if rt.goto is not None else None,
                     "calibrated": ext is not None,
                     "calib_rms_mm": None if ext is None else round(ext.rms * 1000, 1),
+                    "wrist_offset_deg": None if ext is None else [round(v, 1) for v in ext.wrist_offset],
                     "calib_samples": self.calib_session.count(name),
                     "fused_selected": (self.mode == "fused" and self.cfg.fused.reach and self._fused_arm == name
                                        and self._fused_point is not None)

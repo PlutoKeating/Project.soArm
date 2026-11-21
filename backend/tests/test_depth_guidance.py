@@ -135,6 +135,7 @@ class World:
         self.hand_in = "left"  # 手的位置用哪只臂的基座系表示
         self.point = None
         self.wrist_blind = set()  # 这些臂的腕部相机“看不到”，用来测试纯深度引导
+        self.mount = (0.0, 0.0)  # 腕部相机真实的安装偏角 (偏右, 偏上)
         if calibrated:
             for name, T in self.T.items():
                 rig.ctl.calibration.arms[name] = ArmExtrinsic(T, 0.01, 50)
@@ -162,7 +163,7 @@ class World:
                     continue
                 rt = rig.ctl.arms[name]
                 joints = {j: rt.pos[j] for j in ARM_JOINTS}
-                origin, forward, right, up = camera_axes(KIN, joints)
+                origin, forward, right, up = camera_axes(KIN, joints, self.mount)
                 v = self._in_base(name)[0] - origin
                 depth = v @ forward
                 if depth <= 0.05:
@@ -615,3 +616,115 @@ def test_depth_guidance_uses_the_calibrated_extrinsic_regardless_of_noisy_floor_
     world.step(DT)
     cx, cy = world.pixel("left")
     assert abs(cx - 0.5) < 0.08 and abs(cy - 0.5) < 0.10  # 仍然对得准
+
+
+# ---------------------------------------------------------------- 腕部相机安装偏角
+from soarm.calib import estimate_wrist_offset  # noqa: E402
+
+
+def test_mount_offset_tilts_the_optical_axis_and_aiming_accounts_for_it():
+    _, f0, r0, u0 = camera_axes(KIN, HOME)
+    _, f1, _, _ = camera_axes(KIN, HOME, (0.0, -20.0))  # 光轴比夹爪指向低 20°
+    assert np.degrees(np.arccos(f0 @ f1)) == pytest.approx(20.0, abs=1e-6) and f1[2] < f0[2]
+    _, f2, _, _ = camera_axes(KIN, HOME, (15.0, 0.0))  # 偏右 15°
+    assert f2 @ r0 == pytest.approx(np.sin(np.deg2rad(15.0)), abs=1e-6)
+    # 瞄准时把偏角算进去：目标点落在“带偏角的相机”的光轴上
+    point, mount = np.array([0.6, 0.15, 0.2]), (4.0, -20.0)
+    off = aim_offsets(KIN, HOME, point, -1.0, -1.0, mount)
+    joints = dict(HOME)
+    joints["shoulder_pan"] += off[0]
+    joints["wrist_flex"] += off[1]
+    origin, forward, _, _ = camera_axes(KIN, joints, mount)
+    to_point = (point - origin) / np.linalg.norm(point - origin)
+    assert np.degrees(np.arccos(np.clip(forward @ to_point, -1, 1))) < 0.5
+    # 不算偏角的话会差出约 20°
+    naive = aim_offsets(KIN, HOME, point, -1.0, -1.0)
+    joints = dict(HOME)
+    joints["shoulder_pan"] += naive[0]
+    joints["wrist_flex"] += naive[1]
+    _, forward, _, _ = camera_axes(KIN, joints, mount)
+    assert np.degrees(np.arccos(np.clip(forward @ to_point, -1, 1))) > 15.0
+
+
+def _offset_samples(T, mount, n=60, wrong=0, seed=0):
+    """真实相机带安装偏角 mount；样本里的视线按“无偏角”模型计算（与控制器存样本的方式一致）。"""
+    rng = np.random.default_rng(seed)
+    T_inv = np.linalg.inv(T)
+    out = []
+    while len(out) < n:
+        hand = np.array([rng.uniform(0.45, 0.95), rng.uniform(-0.3, 0.3), rng.uniform(0.0, 0.4)])
+        joints = dict(HOME)
+        joints["shoulder_pan"] += rng.uniform(-25, 25)
+        joints["wrist_flex"] += rng.uniform(-15, 20)
+        origin, forward, right, up = camera_axes(KIN, joints, mount)  # 真实成像
+        v = hand - origin
+        depth = v @ forward
+        if depth <= 0.1:
+            continue
+        half_w = np.tan(np.deg2rad(HFOV) / 2)
+        cx = 0.5 + (v @ right) / depth / half_w / 2 + rng.normal(0, 0.015)
+        cy = 0.5 - (v @ up) / depth / (half_w * ASPECT) / 2 + rng.normal(0, 0.015)
+        if not (0.33 < cx < 0.67 and 0.33 < cy < 0.67):
+            continue
+        o, d = wrist_ray(KIN, joints, cx, cy, HFOV, ASPECT)  # 存样本时不带偏角
+        out.append(BearingSample(o, d, T_inv[:3, :3] @ hand + T_inv[:3, 3] + rng.normal(0, 0.008, 3)))
+    for s_ in out[:wrong]:  # 别人的手
+        s_.cam_point = s_.cam_point + rng.uniform(-0.5, 0.5, 3)
+    return out
+
+
+def test_estimate_wrist_offset_recovers_the_mount_angle_despite_wrong_hands():
+    T = _true_extrinsic()
+    mount = (3.5, -19.6)
+    offset, used, spread = estimate_wrist_offset(_offset_samples(T, mount, n=70, wrong=20, seed=4), T)
+    assert offset[0] == pytest.approx(mount[0], abs=2.0) and offset[1] == pytest.approx(mount[1], abs=2.0)
+    assert 45 <= used <= 62 and max(spread) < 6.0
+
+
+def test_estimate_wrist_offset_refuses_too_few_or_inconsistent_samples():
+    T = _true_extrinsic()
+    with pytest.raises(ValueError, match="至少需要"):
+        estimate_wrist_offset(_offset_samples(T, (0.0, -20.0), n=6), T)
+    junk = _offset_samples(T, (0.0, -20.0), n=40, wrong=40, seed=7)
+    with pytest.raises(ValueError):
+        estimate_wrist_offset(junk, T)
+
+
+def test_guidance_centres_the_hand_once_the_mount_offset_is_known(world):
+    """真实相机比夹爪指向低 20°：不知道偏角时引导到位后手偏在画面上方；补上偏角后居中。"""
+    rig = world.rig
+    world.mount = (0.0, -20.0)
+    world.wrist_blind = {"left", "right"}
+    world.hand_in, world.point = "left", np.array([0.60, 0.25, 0.20])
+    world.step(3.0)
+    world.wrist_blind = {"right"}
+    world.step(DT)
+    _, cy_before = world.pixel("left")
+    assert cy_before < 0.25  # 手在画面上方，偏了很多
+    # 让手消失、臂回位，然后补上偏角再来一次
+    world.point = None
+    world.step(8.0)
+    rig.ctl.calibration.arms["left"].wrist_offset = (0.0, -20.0)
+    world.wrist_blind = {"left", "right"}
+    world.point = np.array([0.60, 0.25, 0.20])
+    world.step(3.0)
+    world.wrist_blind = {"right"}
+    world.step(DT)
+    cx, cy = world.pixel("left")
+    assert abs(cx - 0.5) < 0.08 and abs(cy - 0.5) < 0.10
+
+
+def test_auto_solve_estimates_wrist_offset_when_an_extrinsic_exists(tmp_path):
+    rig = Rig(tmp_path)
+    T = _true_extrinsic()
+    rig.ctl.calibration.arms["left"] = ArmExtrinsic(T, 0.015, 16)
+    rig.ctl.auto_samples["left"] = _offset_samples(T, (3.0, -18.0), n=50, wrong=8, seed=9)
+    result = rig.ctl.calib_auto_solve("left")
+    assert result["method"] == "wrist_offset"
+    assert result["pitch_up_deg"] == pytest.approx(-18.0, abs=2.0) and result["yaw_right_deg"] == pytest.approx(3.0, abs=2.0)
+    # 存盘后重新加载仍在；外参本身没被改动
+    from soarm.calib import Calibration
+    loaded = Calibration.load(tmp_path / "extrinsics.yaml").arms["left"]
+    assert loaded.wrist_offset == pytest.approx((result["yaw_right_deg"], result["pitch_up_deg"]), abs=0.01)
+    assert np.allclose(loaded.T_base_cam, T, atol=1e-5)
+    assert rig.ctl.snapshot()["arms"]["left"]["wrist_offset_deg"] == pytest.approx([3.0, -18.0], abs=2.0)

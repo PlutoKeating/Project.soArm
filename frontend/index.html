@@ -62,10 +62,10 @@
         <div class="keys" id="head-keys"></div>
         <details id="calib">
           <summary>外参标定（深度引导前做一次）</summary>
-          <p class="muted steps-intro">自动方式：在腕部跟随或深度引导模式下正常伸手互动即可。只要腕部相机和深度相机同时看到同一只手，就会自动积累样本。每只臂攒够 30 对以上、且手在不同远近高低都出现过，就可以求解。</p>
+          <p class="muted steps-intro">自动方式：在腕部跟随或深度引导模式下正常伸手互动即可。只要腕部相机和深度相机同时看到同一只手，就会自动积累样本。已有外参时，这些样本用来估计腕部相机的安装偏角；每只臂攒够 20 对以上再估。</p>
           <div class="calib-row">
             <span id="auto-count" class="muted"></span>
-            <button type="button" id="auto-solve" class="primary">用自动样本求解所选臂</button>
+            <button type="button" id="auto-solve" class="primary">用自动样本估计所选臂的安装偏角</button>
             <button type="button" id="auto-clear">清空所选臂的自动样本</button>
           </div>
           <p class="muted steps-intro">手动方式（自动方式效果不好时用）：</p>
