@@ -198,6 +198,9 @@ function render() {
   const count = state.arms[arm]?.calib_samples ?? 0;
   $("#calib-count").textContent = `${arm === "left" ? "左臂" : "右臂"}已采 ${count} 点`;
   $("#calib-solve").disabled = count < 4;
+  const auto = (name) => state.arms[name]?.auto_samples ?? 0;
+  $("#auto-count").textContent = `自动样本：左臂 ${auto("left")} 对 · 右臂 ${auto("right")} 对`;
+  $("#auto-solve").disabled = auto(arm) < 10;
 
   for (const kbd of $$(".keys kbd")) kbd.classList.toggle("down", pressed.has(kbd.dataset.code));
 }
@@ -308,6 +311,11 @@ function bindButtons() {
     const res = await post("/api/calib/solve", { arm: calibArm() });
     if (res) $("#calib-result").textContent = `已保存：${res.samples} 点，残差 ${(res.rms * 1000).toFixed(1)} mm`;
   });
+  $("#auto-solve").addEventListener("click", async () => {
+    const res = await post("/api/calib/auto/solve", { arm: calibArm() });
+    if (res) $("#calib-result").textContent = `已保存：采用 ${res.samples} / ${res.collected} 对，偏差 ${(res.rms * 1000).toFixed(0)} mm`;
+  });
+  $("#auto-clear").addEventListener("click", () => post("/api/calib/auto/clear", { arm: calibArm() }));
   $("#head-preset").addEventListener("click", () => post("/api/head/preset"));
   // 按钮点击后不要留住焦点，否则空格会再次触发它而不是急停
   document.addEventListener("click", (ev) => { if (ev.target.closest("button")) ev.target.closest("button").blur(); });

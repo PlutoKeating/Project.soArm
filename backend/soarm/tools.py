@@ -219,6 +219,138 @@ def cmd_head_watch(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- 外参：旁路采集与离线求解
+def cmd_collect_calib(args: argparse.Namespace) -> int:
+    """不打断正在运行的控制台，旁路采集外参标定样本。
+
+    本进程自己打开深度相机，同时只读轮询运行中控制台的状态接口，拿到机械臂关节角和
+    腕部相机看到的手。两边同时看到手时记下一对“视线 + 3D 点”。前提是运行中的控制台
+    没有占用深度相机（配置里把它 enabled: false）。
+    """
+    import json
+    import urllib.request
+    from functools import partial
+
+    import numpy as np
+
+    from .control.geometry import wrist_ray
+    from .kinematics import ARM_JOINTS, ArmKinematics
+    from .perception.cameras import CameraWorker
+    from .perception.hand import make_detector
+
+    cfg = load_config(args.config)
+    head_cfg = cfg.cameras[cfg.head_camera]
+    worker = CameraWorker(
+        cfg.head_camera, head_cfg, cfg.detector,
+        partial(make_detector, cfg.detector.backend, cfg.path(cfg.detector.model_path), 2, cfg.detector.min_confidence),
+    )
+    worker.start()
+    kin = ArmKinematics()
+    fc = cfg.fused
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    counts: dict[str, int] = {}
+    last_point: dict[str, np.ndarray] = {}
+    prev_head: tuple[float, np.ndarray] | None = None
+    stats = {"轮询": 0, "深度相机有手": 0, "有臂在跟随": 0, "两边同时": 0}
+    t_end = time.monotonic() + args.seconds
+    print(f"开始采集 {args.seconds:.0f} 秒，写入 {out}。Ctrl+C 可提前结束。")
+    try:
+        with out.open("a", encoding="utf-8") as f:
+            while time.monotonic() < t_end:
+                time.sleep(0.04)
+                if worker.error:
+                    print(f"\r深度相机: {worker.error}        ", end="")
+                    continue
+                stats["轮询"] += 1
+                head = worker.primary_hand(max_age_s=0.12)
+                ok_head = head is not None and head.xyz is not None and fc.depth_range[0] <= head.xyz[2] <= fc.depth_range[1]
+                stats["深度相机有手"] += ok_head
+                try:
+                    state = json.load(urllib.request.urlopen(f"{args.prod}/api/state", timeout=1))
+                except OSError as e:
+                    print(f"\r读不到运行中的控制台: {e}        ", end="")
+                    continue
+                arm = next((n for n, a in state["arms"].items() if a.get("fused_selected")), None)
+                stats["有臂在跟随"] += arm is not None
+                if ok_head:
+                    # 状态接口没有时间戳，两边差几十毫秒；只在手基本不动时采样来消除这个误差
+                    slow = prev_head is not None and np.linalg.norm(head.xyz - prev_head[1]) < 0.012 * max(1.0, (head.t - prev_head[0]) / 0.033)
+                    prev_head = (head.t, np.array(head.xyz))
+                else:
+                    slow, prev_head = False, None
+                if not (ok_head and arm and slow):
+                    continue
+                a = state["arms"][arm]
+                cam_state = state["cameras"].get(cfg.arms[arm].camera if arm in cfg.arms else "", {})
+                wrist = cam_state.get("primary")
+                if not wrist or a["status"] not in ("跟随中", "已对准"):
+                    continue
+                stats["两边同时"] += 1
+                if max(abs(wrist["cx"] - 0.5), abs(wrist["cy"] - 0.5)) * 2.0 > fc.auto_calib_center:
+                    continue
+                if arm in last_point and np.linalg.norm(last_point[arm] - head.xyz) < fc.auto_calib_spacing:
+                    continue
+                width, height = cam_state.get("size", [1280, 720])
+                origin, direction = wrist_ray(
+                    kin, {j: a["joints"][j] for j in ARM_JOINTS}, wrist["cx"], wrist["cy"], args.hfov, height / width
+                )
+                last_point[arm] = np.array(head.xyz)
+                counts[arm] = counts.get(arm, 0) + 1
+                f.write(json.dumps({
+                    "arm": arm, "origin": origin.tolist(), "direction": direction.tolist(),
+                    "cam_point": [float(v) for v in head.xyz], "wrist": [wrist["cx"], wrist["cy"]],
+                    "joints": a["joints"], "time": time.time(),
+                }) + "\n")
+                f.flush()
+                print(f"\r已采集 {counts}        ", end="")
+    except KeyboardInterrupt:
+        pass
+    finally:
+        worker.stop()
+    print(f"\n结束。{stats}，新增样本 {counts}")
+    return 0
+
+
+def cmd_solve_calib(args: argparse.Namespace) -> int:
+    """用旁路采集的样本离线求解外参，写入 calibration/extrinsics.yaml。"""
+    import json
+
+    import numpy as np
+
+    from .calib import ArmExtrinsic, BearingSample, Calibration, solve_from_bearings
+
+    cfg = load_config(args.config)
+    rows = [json.loads(line) for line in Path(args.samples).read_text(encoding="utf-8").splitlines() if line.strip()]
+    path = cfg.path(cfg.calibration_dir) / "extrinsics.yaml"
+    calibration = Calibration.load(path)
+    solved = 0
+    for arm in sorted({r["arm"] for r in rows}):
+        samples = [
+            BearingSample(np.array(r["origin"]), np.array(r["direction"]), np.array(r["cam_point"]))
+            for r in rows if r["arm"] == arm
+        ]
+        pts = np.array([s.cam_point for s in samples])
+        print(f"{arm}: {len(samples)} 个样本，手在相机系下的范围 "
+              f"x {pts[:, 0].min():.2f}..{pts[:, 0].max():.2f}  y {pts[:, 1].min():.2f}..{pts[:, 1].max():.2f}  "
+              f"深度 {pts[:, 2].min():.2f}..{pts[:, 2].max():.2f} m")
+        try:
+            T, rms, used = solve_from_bearings(samples)
+        except ValueError as e:
+            print(f"  无法求解：{e}")
+            continue
+        print(f"  采用 {used} 个样本，手偏离视线的 RMS {rms * 1000:.0f} mm")
+        print(f"  相机在该臂基座系下的位置 x={T[0, 3]:.3f} y={T[1, 3]:.3f} z={T[2, 3]:.3f} m；"
+              f"光轴方向 {np.round(T[:3, 2], 2).tolist()}")
+        calibration.arms[arm] = ArmExtrinsic(T, rms, used)
+        solved += 1
+    if solved and not args.dry_run:
+        calibration.head_preset = calibration.head_preset or {"pan": 0.0, "tilt": 0.0}
+        calibration.save(path)
+        print(f"已保存到 {path}")
+    return 0 if solved else 1
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="soarm-tools", description="SO-ARM 演示套件的上电准备工具")
     parser.add_argument("--config", help="配置文件路径，默认 config/config.yaml")
@@ -240,6 +372,18 @@ def main() -> None:
     p.add_argument("arm")
     p.add_argument("--once", action="store_true", help="只读一次就退出")
     p.set_defaults(func=cmd_watch)
+
+    p = sub.add_parser("collect-calib", help="旁路采集外参标定样本，不打断运行中的控制台")
+    p.add_argument("--prod", default="http://127.0.0.1:8000", help="运行中控制台的地址")
+    p.add_argument("--out", default="calibration/bearing_samples.jsonl")
+    p.add_argument("--seconds", type=float, default=600)
+    p.add_argument("--hfov", type=float, default=90.0, help="运行中控制台的腕部相机水平视场角")
+    p.set_defaults(func=cmd_collect_calib)
+
+    p = sub.add_parser("solve-calib", help="用旁路采集的样本离线求解外参")
+    p.add_argument("samples", nargs="?", default="calibration/bearing_samples.jsonl")
+    p.add_argument("--dry-run", action="store_true", help="只求解和打印，不保存")
+    p.set_defaults(func=cmd_solve_calib)
 
     p = sub.add_parser("head-watch", help="释放云台力矩并显示原始刻度")
     p.set_defaults(func=cmd_head_watch)
