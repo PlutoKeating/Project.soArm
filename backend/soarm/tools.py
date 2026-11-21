@@ -78,26 +78,41 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------- cameras
+def _udev_props(device: str) -> dict[str, str]:
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            ["udevadm", "info", "-q", "property", "-n", device], capture_output=True, text=True, timeout=5
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    return dict(line.split("=", 1) for line in out.splitlines() if "=" in line)
+
+
 def cmd_cameras(args: argparse.Namespace) -> int:
     """列出相机并各存一张快照，用来分辨哪个是左腕/右腕相机。"""
     import cv2
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
-    # 两个腕部相机通常是同型号且序列号相同，by-id 路径会重名，所以用按 USB 口区分的 by-path
+    # 两个腕部相机同型号且序列号相同，by-id 会重名，只能按 USB 口区分。
+    # 必须用带 usbv2 / usbv3 的路径：不带版本号的 by-path 在 USB2 与 USB3 的同号口上会重名。
     print("UVC 相机（路径按 USB 口区分：相机换插到别的口后需要重新填写）：")
-    by_id = {os.path.realpath(p): Path(p).name for p in glob.glob("/dev/v4l/by-id/*")}
-    for path in sorted(p for p in glob.glob("/dev/v4l/by-path/*index0") if "-usbv" not in p):
-        name = by_id.get(os.path.realpath(path), "未知型号")
+    for path in sorted(glob.glob("/dev/v4l/by-path/*-usbv*-video-index0")):
+        props = _udev_props(path)
+        model = props.get("ID_MODEL", "未知型号")
+        if "RealSense" in model:
+            continue  # RealSense 走 SDK，按序列号打开
         cap = cv2.VideoCapture(path, cv2.CAP_V4L2)
         ok, frame = cap.read() if cap.isOpened() else (False, None)
         cap.release()
         if ok:
             snap = out / (Path(path).name + ".jpg")
             cv2.imwrite(str(snap), frame)
-            print(f"  {path}\n      {name}  {frame.shape[1]}x{frame.shape[0]}  快照: {snap}")
+            print(f"  {path}\n      {model}  {frame.shape[1]}x{frame.shape[0]}  快照: {snap}")
         else:
-            print(f"  {path}\n      {name}  无法取帧（可能被占用，或是 RealSense 的红外/深度节点）")
+            print(f"  {path}\n      {model}  无法取帧（可能正被占用）")
     try:
         import pyrealsense2 as rs
 
@@ -106,6 +121,7 @@ def cmd_cameras(args: argparse.Namespace) -> int:
         for dev in devices:
             print(
                 f"  {dev.get_info(rs.camera_info.name)}  序列号 {dev.get_info(rs.camera_info.serial_number)}"
+                "（配置里填这个；它与 USB 描述符里的芯片序列号不同）"
                 f"  固件 {dev.get_info(rs.camera_info.firmware_version)}"
                 f"  USB {dev.get_info(rs.camera_info.usb_type_descriptor)}"
             )

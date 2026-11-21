@@ -47,8 +47,11 @@ uv run soarm-console --mock      # 不接硬件，用模拟臂跑通控制台
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：整体架构与关键设计决定
 - [docs/API.md](docs/API.md)：HTTP / WebSocket 接口
 - [docs/REFERENCES.md](docs/REFERENCES.md)：调研过的社区与官方方案
+- [docs/devices/](docs/devices/)：相机设备检测报告与实测校正
 - [backend/docs/README.md](backend/docs/README.md)、[frontend/docs/README.md](frontend/docs/README.md)：模块文档
 
 ## 当前状态
 
-代码在模拟臂上通过全部自动化测试，并在浏览器里端到端跑通。**尚未在真机上验证**：机械臂校准、腕部跟随的方向符号、云台刻度、RealSense 驱动和外参标定都需要设备上电后完成，清单见 QUICK_START 的“真机首次上电检查表”。
+- 控制逻辑在模拟臂上通过全部自动化测试，并在浏览器里端到端跑通。
+- 三台相机已接入实测：三路画面、手部检测和深度读数都正常，结果见 [docs/devices/VERIFIED.md](docs/devices/VERIFIED.md)。
+- **机械臂和云台尚未上电验证**：校准、腕部跟随的方向符号、云台刻度和外参标定都要等设备上电后完成，清单见 QUICK_START 的“真机首次上电检查表”。

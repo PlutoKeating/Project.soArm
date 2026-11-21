@@ -77,7 +77,15 @@ uv run soarm-tools head-watch
 uv run soarm-tools cameras
 ```
 
-每个相机会存一张快照，据此分辨左腕和右腕，把路径填入 `cameras.wrist_left.device`、`cameras.wrist_right.device`。两个腕部相机型号相同，路径按 USB 口区分，换插到别的口后需要重新填写。画面是倒的就设 `rotate: 180`。RealSense 的序列号填入 `cameras.head.device`（只有一台时可留空）。
+每个相机会存一张快照，据此分辨左腕和右腕，把路径填入 `cameras.wrist_left.device`、`cameras.wrist_right.device`。注意三点：
+
+- 两个腕部相机型号和序列号完全相同，只能按 USB 口区分，换插到别的口后需要重新填写。
+- 路径必须用带 `usbv2` 的写法；不带版本号的 by-path 在 USB2 与 USB3 的同号口上会重名。
+- 快照分不清左右时，启动控制台后把手依次放到两只臂的夹爪前，看手出现在哪个面板。“左”按机器人自己的朝向算。
+
+画面是倒的就设 `rotate: 180`。RealSense 的序列号以该命令输出的为准，填入 `cameras.head.device`（只有一台时可留空）。
+
+本套设备的实测结果见 [devices/VERIFIED.md](devices/VERIFIED.md)。
 
 ### 3.6 启动并逐项验证
 
@@ -118,4 +126,4 @@ uv run soarm-console          # 启动
 | 手臂动到一半提示“受到阻挡，已让位” | 有东西挡住了，或速度相对负载过快。排除遮挡后重试；确属误报可调大 `safety.stall_error_deg` |
 | 键盘控制提示“到达可达范围边界” | 目标超出了机构可达范围或工作空间包围盒，往回移动即可 |
 | 深度引导不动，面板提示云台偏离标定姿态 | 点“云台回到标定姿态” |
-| RealSense 打不开 | 确认接在 USB 3 口；`uv run soarm-tools cameras` 查看是否被识别 |
+| RealSense 打不开 | 确认接在 USB 3 口；`uv run soarm-tools cameras` 查看是否被识别；序列号填的是否是该命令输出的那个 |

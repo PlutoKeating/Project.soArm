@@ -54,7 +54,7 @@ class HeadConfig:
 @dataclass
 class CameraConfig:
     type: str = "opencv"  # opencv | realsense
-    device: str = ""  # opencv: /dev/v4l/by-path/... 或整数索引；realsense: 序列号，留空取第一台
+    device: str = ""  # opencv: /dev/v4l/by-path/...-usbv2-... 或整数索引；realsense: 序列号，留空取第一台
     width: int = 640
     height: int = 480
     fps: int = 30
@@ -113,7 +113,7 @@ class FusedConfig:
     min_reach: float = 0.22  # 手逼近时夹爪最多缩回到离肩部这么近
     max_reach: float = 0.35  # 夹爪参考点离肩部的最大距离
     linear_speed: float = 0.10  # 引导时末端的最大线速度（米/秒）
-    depth_range: tuple[float, float] = (0.25, 1.6)  # 认可的手部深度范围（米）
+    depth_range: tuple[float, float] = (0.20, 1.6)  # 认可的手部深度范围（米），下限接近 D435 的最近测距距离
     switch_hysteresis: float = 0.06  # 换臂的滞回距离（米）
     wrist_trim_limit_deg: float = 25.0  # 腕部精调在引导姿态上叠加的最大角度
     lost_timeout_s: float = 1.5

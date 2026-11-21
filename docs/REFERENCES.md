@@ -37,7 +37,10 @@
 
 选 MediaPipe Hands：直接输出 21 个关键点，CPU 上即可实时，社区的 SO-101 手部项目几乎都用它。已知弱点是暗光和远距离小目标的检出率。检测器做成了可替换接口（`perception/hand.py` 的 `HandDetector`），效果不够时可以换 YOLO 手部权重或 RTMPose，不需要改控制代码。
 
-## 已知风险
+## 相机实测结论
 
-- 深度相机标签上的型号 “D435CB” 查不到对应的官方型号，需接上后以 SDK 识别结果为准。
-- librealsense 对 Ubuntu 26.04 的支持较新。`pyrealsense2` 的 wheel 已能安装，但尚未连真机验证。
+- 深度相机标签上的 “D435CB” 实际就是标准的 RealSense D435（无 IMU），SDK 识别正常。
+- `pyrealsense2` 2.59 的 wheel 在 Ubuntu 26.04 上可直接使用，不需要编译，也不需要 udev 规则。
+- 腕部相机是 OV9732 100° 广角 UVC 模组。
+
+设备报告与实测校正见 [devices/](devices/)。

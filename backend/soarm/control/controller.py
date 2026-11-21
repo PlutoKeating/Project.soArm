@@ -648,6 +648,19 @@ class Controller:
             cam.overlay_active = self.mode == "fused" and self._fused_point is not None
             cam.overlay_text = f"-> {self._fused_arm}" if cam.overlay_active else ""
 
+    @staticmethod
+    def _hand_info(hand) -> dict | None:
+        """主手的画面位置与（深度相机上的）3D 坐标，供界面显示和现场排查。"""
+        if hand is None:
+            return None
+        return {
+            "cx": round(hand.cx, 3),
+            "cy": round(hand.cy, 3),
+            "size": round(hand.size, 3),
+            "score": round(hand.score, 2),
+            "xyz": None if hand.xyz is None else [round(float(v), 3) for v in hand.xyz],
+        }
+
     def snapshot(self) -> dict:
         with self._lock:
             arms = {}
@@ -675,6 +688,7 @@ class Controller:
                 }
             cams = {
                 name: {
+                    "primary": self._hand_info(cam.primary_hand()),
                     "error": cam.error,
                     "detect_error": cam.detect_error,
                     "fps": round(cam.fps, 1),

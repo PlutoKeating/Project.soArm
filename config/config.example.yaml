@@ -23,15 +23,17 @@ head:
 cameras:
   wrist_left:
     type: opencv
-    device: ""          # soarm-tools cameras 输出的 /dev/v4l/by-path/...-index0 路径
+    device: ""          # soarm-tools cameras 输出的 /dev/v4l/by-path/...-usbv2-...-index0 路径
     rotate: 0           # 画面是倒的或侧的时改成 90 / 180 / 270
+    hfov_deg: 85        # 水平视场角估计值，只影响跟随灵敏度
   wrist_right:
     type: opencv
     device: ""
     rotate: 0
+    hfov_deg: 85
   head:
     type: realsense
-    device: ""          # RealSense 序列号，留空取第一台
+    device: ""          # soarm-tools cameras 输出的 RealSense 序列号，留空取第一台
 
 # 展会场景建议保持默认。内部调试想更灵敏时可调大：
 # safety:

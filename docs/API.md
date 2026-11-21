@@ -72,8 +72,9 @@
     "matches_preset": true
   },
   "cameras": {
-    "wrist_left": {"error": null, "detect_error": null, "fps": 30.0,
-                   "detect_fps": 20.0, "hands": 1, "locked": true, "depth": false}
+    "wrist_left": {"error": null, "detect_error": null, "fps": 20.0,
+                   "detect_fps": 13.0, "hands": 1, "locked": true, "depth": false,
+                   "primary": {"cx": 0.52, "cy": 0.4, "size": 0.6, "score": 0.95, "xyz": null}}
   }
 }
 ```
@@ -85,6 +86,7 @@
 - `moving_to` 在回初始位或收到休息位的途中为 `"home"` 或 `"rest"`。
 - `calib_rms_mm` 是已保存外参的残差；`calib_samples` 是尚未求解的暂存点数。
 - `head` 在未配置云台时为 `null`。
+- `cameras.*.primary` 是当前锁定的主手：`cx`、`cy` 为掌心的归一化画面坐标，`size` 为手在画面中的相对大小，`xyz` 为相机光学系下的 3D 坐标（米，x 右 y 下 z 前），只有深度相机有。没有主手时为 `null`。
 
 ## 键位
 
