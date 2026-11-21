@@ -131,51 +131,25 @@ def cmd_cameras(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------- 校准
-def _follower(args: argparse.Namespace):
-    from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
-
+def _arm_config(args: argparse.Namespace):
     cfg = load_config(args.config)
     if args.arm not in cfg.arms:
         sys.exit(f"配置里没有名为 {args.arm} 的机械臂")
-    arm = cfg.arms[args.arm]
-    if not arm.port:
+    if not cfg.arms[args.arm].port:
         sys.exit(f"请先在 config/config.yaml 里填写 arms.{args.arm}.port")
-    return SO101Follower(SO101FollowerConfig(port=arm.port, id=arm.calibration_id, use_degrees=True))
-
-
-def cmd_recover_calibration(args: argparse.Namespace) -> int:
-    """从舵机里读回上一次校准（零点偏置和限位），存成 LeRobot 校准文件，免去重新校准。"""
-    robot = _follower(args)
-    bus = robot.bus
-    bus.connect()
-    try:
-        calib = bus.read_calibration()
-    finally:
-        bus.disconnect(disable_torque=False)
-    print(f"{args.arm} 臂舵机内保存的校准：")
-    suspicious = []
-    for name, c in calib.items():
-        span = c.range_max - c.range_min
-        note = ""
-        if span <= 0 or span >= 4090:
-            note = "  <- 限位是出厂默认值，说明这个关节没有被校准过"
-            suspicious.append(name)
-        print(f"  {name:14s} 偏置 {c.homing_offset:6d}  范围 [{c.range_min}, {c.range_max}]{note}")
-    # wrist_roll 在 LeRobot 校准里本来就是整圈，不算异常
-    suspicious = [n for n in suspicious if n != "wrist_roll"]
-    if suspicious and not args.force:
-        print(f"\n以上关节 {suspicious} 没有有效校准，未保存。请改用：soarm-tools calibrate {args.arm}")
-        return 1
-    robot.calibration = calib
-    robot._save_calibration()
-    print(f"\n已保存到 {robot.calibration_fpath}")
-    print(f"请再运行 soarm-tools watch {args.arm} 核对角度是否合理。")
-    return 0
+    return cfg
 
 
 def cmd_calibrate(args: argparse.Namespace) -> int:
-    """运行 LeRobot 的标准校准流程（需要用手掰动每个关节走完整行程）。"""
-    robot = _follower(args)
+    """运行 LeRobot 的标准校准流程，结果写入舵机（需要用手掰动每个关节走完整行程）。
+
+    只有 scan 显示某些关节的限位是出厂值 [0, 4095]，或 watch 核对发现零位明显不对时才需要。
+    """
+    from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
+
+    cfg = _arm_config(args)
+    arm = cfg.arms[args.arm]
+    robot = SO101Follower(SO101FollowerConfig(port=arm.port, id=arm.calibration_id, use_degrees=True))
     robot.bus.connect()
     try:
         robot.bus.disable_torque(num_retry=3)
@@ -186,28 +160,36 @@ def cmd_calibrate(args: argparse.Namespace) -> int:
 
 
 def cmd_watch(args: argparse.Namespace) -> int:
-    """释放力矩并实时显示各关节角度，用手摆姿态来核对校准。"""
+    """实时显示各关节角度和行程限位，用手摆姿态来核对校准。只读，不改变力矩状态。"""
     from .kinematics import ARM_JOINTS, ArmKinematics
+    from .robot.real import RealArm
 
-    robot = _follower(args)
-    if not robot.calibration:
-        sys.exit(f"没有校准文件 {robot.calibration_fpath}")
+    cfg = _arm_config(args)
+    arm = RealArm(args.arm, cfg.arms[args.arm], cfg.safety)
+    arm.open()
     kin = ArmKinematics()
-    bus = robot.bus
-    bus.connect()
-    print("力矩已释放，请用手托住手臂。把手臂水平向前伸直时，前 5 个关节应都接近 0°。Ctrl+C 退出。\n")
+    print("本臂的行程限位（度）：")
+    for joint, (lo, hi) in arm.limits().items():
+        print(f"  {joint:14s} {lo:7.1f} .. {hi:7.1f}")
+    if arm.found_resting:
+        print("\n力矩当前是关闭的，可以用手摆动手臂。把手臂水平向前伸直时，前 5 个关节应都接近 0°。")
+    else:
+        print("\n注意：力矩当前是开启的，本命令不会改变它。")
+    print("Ctrl+C 退出。\n")
     try:
-        bus.disable_torque(num_retry=3)
         while True:
-            pos = bus.sync_read("Present_Position", num_retry=2)
+            pos = arm.read()
             tip, pitch = kin.tip_and_pitch({j: pos[j] for j in ARM_JOINTS})
             joints = "  ".join(f"{k[:10]}={v:7.1f}" for k, v in pos.items())
             print(f"\r{joints} | 夹爪尖 x={tip[0]:.3f} y={tip[1]:.3f} z={tip[2]:.3f} 俯仰={pitch:5.1f}  ", end="")
+            if args.once:
+                break
             time.sleep(0.1)
     except KeyboardInterrupt:
-        print()
+        pass
     finally:
-        bus.disconnect(disable_torque=True)
+        print()
+        arm.disconnect()
     return 0
 
 
@@ -250,17 +232,13 @@ def main() -> None:
     p.add_argument("--out", default="/tmp/soarm-cameras", help="快照保存目录")
     p.set_defaults(func=cmd_cameras)
 
-    p = sub.add_parser("recover-calibration", help="从舵机读回已有校准并保存")
-    p.add_argument("arm")
-    p.add_argument("--force", action="store_true", help="即使有关节看起来未校准也保存")
-    p.set_defaults(func=cmd_recover_calibration)
-
-    p = sub.add_parser("calibrate", help="运行 LeRobot 标准校准流程")
+    p = sub.add_parser("calibrate", help="运行 LeRobot 标准校准流程（一般不需要）")
     p.add_argument("arm")
     p.set_defaults(func=cmd_calibrate)
 
-    p = sub.add_parser("watch", help="释放力矩并实时显示关节角度")
+    p = sub.add_parser("watch", help="实时显示关节角度与行程限位（只读）")
     p.add_argument("arm")
+    p.add_argument("--once", action="store_true", help="只读一次就退出")
     p.set_defaults(func=cmd_watch)
 
     p = sub.add_parser("head-watch", help="释放云台力矩并显示原始刻度")

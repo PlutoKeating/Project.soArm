@@ -151,11 +151,13 @@ class ArmKinematics:
         max_iters: int = 30,
         damping: float = 3e-4,
         max_step_deg: float = 8.0,
+        limits: dict[str, tuple[float, float]] | None = None,
     ) -> IKResult:
         """从 seed 出发迭代求解。上层应检查残差，残差大说明目标不可达。"""
         q = np.array([seed_deg.get(n, 0.0) for n in IK_JOINTS], dtype=float)
-        lo = np.array([self.limits[n][0] for n in IK_JOINTS])
-        hi = np.array([self.limits[n][1] for n in IK_JOINTS])
+        limits = limits or self.limits  # 可传入某只臂自己的（更窄的）限位
+        lo = np.array([limits[n][0] for n in IK_JOINTS])
+        hi = np.array([limits[n][1] for n in IK_JOINTS])
         target = np.array([*target_pos, np.deg2rad(target_pitch_deg) * self.pitch_weight])
         eps = 0.05  # 数值雅可比的差分步长（度）
         for _ in range(max_iters):
@@ -182,12 +184,8 @@ class ArmKinematics:
             pitch_error=float(abs(pitch - target_pitch_deg)),
         )
 
-    def clamp(self, joints_deg: dict[str, float], margin_deg: float = 0.0) -> dict[str, float]:
-        out = {}
-        for n, v in joints_deg.items():
-            if n in self.limits:
-                lo, hi = self.limits[n]
-                out[n] = float(np.clip(v, lo + margin_deg, hi - margin_deg))
-            else:
-                out[n] = v
-        return out
+    @staticmethod
+    def clamp(joints_deg: dict[str, float], limits: dict[str, tuple[float, float]]) -> dict[str, float]:
+        return {
+            n: float(np.clip(v, *limits[n])) if n in limits else v for n, v in joints_deg.items()
+        }

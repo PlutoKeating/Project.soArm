@@ -69,7 +69,7 @@ class SafetyConfig:
 
     max_joint_speed_deg_s: float = 45.0  # 任何模式下单关节目标的变化速率上限
     home_speed_deg_s: float = 25.0  # 回初始位的速度
-    max_torque_limit: int = 500  # Feetech Max_Torque_Limit，满量程 1000
+    max_torque_limit: int = 1000  # Feetech Torque_Limit，满量程 1000。5 V 供电下调低会托不住手臂
     acceleration: int = 40  # Feetech Acceleration 寄存器，越小越柔
     # 夹爪参考点在本臂基座系下允许的范围（米）
     x_range: tuple[float, float] = (0.10, 0.38)

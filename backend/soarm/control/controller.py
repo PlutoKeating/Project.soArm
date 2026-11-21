@@ -76,6 +76,8 @@ class ArmRuntime:
     guided: dict[str, float] | None = None  # 第 3 步引导得到的关节角（不含腕部精调）
     paused_until: float = 0.0
     status: str = ""
+    limits: dict[str, tuple[float, float]] = field(default_factory=dict)  # 本臂生效的关节限位
+    rest: dict[str, float] | None = None  # 本臂的休息位：上电时手臂自然停放的姿态
 
 
 def _approach(value: float, goal: float, max_step: float) -> float:
@@ -138,6 +140,19 @@ class Controller:
         _, p1 = self.kin.tip_and_pitch({**base, "wrist_flex": base["wrist_flex"] + 1.0})
         return float(np.sign(yaw) or 1.0), float(np.sign(p1 - p0) or 1.0)
 
+    def _arm_limits(self, arm: Arm) -> dict[str, tuple[float, float]]:
+        """URDF 限位与这只臂自身行程限位的交集，各留一点余量。"""
+        margin = self.cfg.safety.joint_limit_margin_deg
+        own = arm.limits()
+        out = {}
+        for j in ARM_JOINTS:
+            lo, hi = self.kin.limits[j]
+            lo, hi = lo + margin, hi - margin
+            if j in own:
+                lo, hi = max(lo, own[j][0] + 2.0), min(hi, own[j][1] - 2.0)
+            out[j] = (lo, hi)
+        return out
+
     def start(self) -> None:
         self.connect_all()
         self._thread.start()
@@ -150,8 +165,13 @@ class Controller:
                     continue
                 try:
                     rt.arm.connect()
+                    was_resting = rt.rest is None and rt.arm.found_resting
                     rt.pos = rt.arm.read()
                     rt.target = dict(rt.pos)  # 以当前位置为目标，上电不跳变
+                    rt.limits = self._arm_limits(rt.arm)
+                    if was_resting:
+                        # 首次连接时手臂是无力停放的，这个姿态就是它最稳妥的休息位
+                        rt.rest = {**rt.pos, "gripper": self.cfg.rest["gripper"]}
                     rt.arm.error = None
                     rt.status = "已连接"
                 except Exception as e:
@@ -176,7 +196,7 @@ class Controller:
             if active and not self.estop:
                 self.mode = "idle"
                 for rt in active:
-                    self._start_goto(rt, self.cfg.rest, "rest", release=True)
+                    self._start_goto(rt, rt.rest or self.cfg.rest, "rest", release=True)
         deadline = time.monotonic() + park_timeout_s
         while time.monotonic() < deadline and any(rt.goto is not None for rt in self.arms.values()):
             time.sleep(0.05)
@@ -227,8 +247,7 @@ class Controller:
 
     def go(self, pose: str, release: bool = False) -> None:
         """回初始位 (home) 或休息位 (rest)。release=True 时到位后释放力矩。"""
-        target = {"home": self.home, "rest": self.cfg.rest}.get(pose)
-        if target is None:
+        if pose not in ("home", "rest"):
             raise ValueError(f"未知姿态 {pose}")
         with self._lock:
             if self.estop:
@@ -236,6 +255,7 @@ class Controller:
             self.mode = "idle"
             for rt in self.arms.values():
                 self._reset_motion(rt)
+                target = self.home if pose == "home" else (rt.rest or self.cfg.rest)
                 self._start_goto(rt, target, pose, release=release)
 
     def set_torque(self, enabled: bool) -> None:
@@ -262,7 +282,8 @@ class Controller:
     def _start_goto(self, rt: ArmRuntime, pose: dict[str, float], name: str, release: bool = False) -> None:
         if not rt.arm.connected or not rt.arm.torque_enabled:
             return
-        rt.goto = dict(pose)
+        # 目标先按本臂限位裁剪，否则够不到的目标会让“到位”永远不成立
+        rt.goto = {**pose, **self.kin.clamp({j: pose[j] for j in ARM_JOINTS}, rt.limits)}
         rt.goto_name = name
         rt.release_after_goto = release
 
@@ -387,7 +408,7 @@ class Controller:
         for j in JOINTS:
             step = max_step * (2.5 if j == "gripper" else 1.0)
             new[j] = _approach(rt.target[j], desired.get(j, rt.target[j]), step)
-        arm_part = self.kin.clamp({j: new[j] for j in ARM_JOINTS}, safety.joint_limit_margin_deg)
+        arm_part = self.kin.clamp({j: new[j] for j in ARM_JOINTS}, rt.limits)
         new.update(arm_part)
         new["gripper"] = float(np.clip(new["gripper"], 0.0, 100.0))
         rt.target = new
@@ -418,7 +439,7 @@ class Controller:
         return bool(np.allclose(tip, self._clamp_workspace(rt, tip), atol=1e-6))
 
     def _solve(self, rt: ArmRuntime, pos: np.ndarray, pitch: float, seed: dict[str, float]):
-        res = self.kin.ik(pos, pitch, {j: seed[j] for j in ARM_JOINTS})
+        res = self.kin.ik(pos, pitch, {j: seed[j] for j in ARM_JOINTS}, limits=rt.limits)
         ok = res.pos_error <= self.cfg.safety.ik_pos_tolerance and res.pitch_error <= 4.0
         return res if ok else None
 
@@ -483,6 +504,11 @@ class Controller:
         rt.tilt_off += -rate_y * dt * self._tilt_dir * rt.cfg.follow_tilt_sign
         rt.pan_off = float(np.clip(rt.pan_off, *pan_range))
         rt.tilt_off = float(np.clip(rt.tilt_off, *tilt_range))
+        # 再按本臂关节限位收紧，避免偏转量在限位之外继续累积
+        base = rt.guided or self.home
+        for attr, joint in (("pan_off", "shoulder_pan"), ("tilt_off", "wrist_flex")):
+            lo, hi = rt.limits[joint]
+            setattr(rt, attr, float(np.clip(getattr(rt, attr), lo - base[joint], hi - base[joint])))
 
     def _follow(self, rt: ArmRuntime, dt: float, now: float) -> dict[str, float]:
         f = self.cfg.follow
@@ -677,6 +703,7 @@ class Controller:
                     "status": rt.status,
                     "joints": {j: round(v, 1) for j, v in rt.pos.items()},
                     "target": {j: round(v, 1) for j, v in rt.target.items()},
+                    "limits": {j: [round(v, 1) for v in lim] for j, lim in rt.limits.items()},
                     "tip": tip,
                     "pitch": None if pitch is None else round(pitch, 1),
                     "moving_to": rt.goto_name if rt.goto is not None else None,

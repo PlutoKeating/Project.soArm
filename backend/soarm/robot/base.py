@@ -15,6 +15,9 @@ class Arm(ABC):
         self.connected = False
         self.torque_enabled = False
         self.error: str | None = None
+        # 连接时力矩是否本来就是关闭的（即手臂正无力停放着）。控制层据此决定
+        # 能否把连接时的姿态当作休息位
+        self.found_resting = True
 
     @abstractmethod
     def connect(self) -> None: ...
@@ -32,6 +35,10 @@ class Arm(ABC):
 
     @abstractmethod
     def set_torque(self, enabled: bool) -> None: ...
+
+    def limits(self) -> dict[str, tuple[float, float]]:
+        """这只臂实际允许的关节范围（度）。空字典表示只受 URDF 限位约束。"""
+        return {}
 
 
 class Head(ABC):
