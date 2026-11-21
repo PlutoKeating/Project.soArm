@@ -14,6 +14,7 @@
 | `POST /api/estop` | `{"active": true\|false}` | 急停 / 解除。两者都会把模式置为 idle |
 | `POST /api/go` | `{"pose": "home\|rest", "release": false}` | 前往初始位或休息位；`release` 为真时到位后释放力矩 |
 | `POST /api/torque` | `{"active": true\|false}` | 开关所有臂的力矩。关闭后手臂会下落 |
+| `POST /api/arm/enable` | `{"arm": "left", "enabled": false}` | 停用或启用一只臂。停用后它在任何模式下都只保持当前位置 |
 | `POST /api/reconnect` | – | 重新连接未连上的机械臂和云台 |
 | `POST /api/head/preset` | – | 云台回到标定时的姿态 |
 | `POST /api/calib/sample` | `{"arm": "left", "u": 0.5, "v": 0.5}` | 记录一个标定点。`u`、`v` 是深度相机画面上夹爪尖的归一化坐标 |
@@ -49,11 +50,13 @@
   "arms": {
     "left": {
       "connected": true,
+      "enabled": true,
       "error": null,
       "torque": true,
       "status": "移动中",
       "joints": {"shoulder_pan": 0.0, "shoulder_lift": -75.0, "elbow_flex": 60.0,
-                 "wrist_flex": 10.0, "wrist_roll": 0.0, "gripper": 0.0},
+                 "wrist_flex": 10.0, "wrist_roll": -90.0, "gripper": 0.0},
+      "limits": {"shoulder_pan": [-46.6, 27.5], "...": "该臂生效的关节限位"},
       "target": {"...": "同 joints，为已下发的目标"},
       "tip": [0.256, 0.0, 0.219],
       "pitch": 0.4,

@@ -15,7 +15,7 @@
 | 腕部跟随 | `2` | 腕部相机看到手就转动对准它（只转动、不调距离），看不到手 1.5 秒后回初始位 |
 | 深度引导 | `3` | 深度相机在大视野里定位手的 3D 位置，引导最近的一只臂伸过去并保持距离，腕部相机做最后的精调 |
 
-任何时候按空格急停。面向展会场景，默认带限速、工作空间限制、两臂中线隔离、受阻让位和按键心跳超时保护。
+任何时候按空格急停。面向展会场景，默认带限速、工作空间限制、两臂之间相机中柱的避让、受阻让位和按键心跳超时保护。每只臂可以单独停用。
 
 ## 目录
 
@@ -47,11 +47,14 @@ uv run soarm-console --mock      # 不接硬件，用模拟臂跑通控制台
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)：整体架构与关键设计决定
 - [docs/API.md](docs/API.md)：HTTP / WebSocket 接口
 - [docs/REFERENCES.md](docs/REFERENCES.md)：调研过的社区与官方方案
-- [docs/devices/](docs/devices/)：相机设备检测报告与实测校正
+- [docs/devices/](docs/devices/)：设备检测报告与实测记录
 - [backend/docs/README.md](backend/docs/README.md)、[frontend/docs/README.md](frontend/docs/README.md)：模块文档
 
 ## 当前状态
 
-- 控制逻辑在模拟臂上通过全部自动化测试，并在浏览器里端到端跑通。
-- 三台相机已接入实测：三路画面、手部检测和深度读数都正常，结果见 [docs/devices/VERIFIED.md](docs/devices/VERIFIED.md)。
-- **机械臂和云台尚未上电验证**：校准、腕部跟随的方向符号、云台刻度和外参标定都要等设备上电后完成，清单见 QUICK_START 的“真机首次上电检查表”。
+- 控制逻辑在模拟臂上通过全部自动化测试。
+- 三台相机已实测：三路画面、手部检测和深度读数都正常。
+- 两只机械臂已上电实测：展开到初始位、腕部跟随（方向、回位）、中柱避让、退出时自动收手都已验证。
+- **尚未验证**：键盘笛卡尔控制在真机上的各个方向；云台（当时未接入）、外参标定和深度引导。
+
+实测记录见 [docs/devices/VERIFIED.md](docs/devices/VERIFIED.md)。

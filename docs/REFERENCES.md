@@ -13,7 +13,7 @@
 
 | 来源 | 采用的部分 |
 |---|---|
-| [huggingface/lerobot](https://github.com/huggingface/lerobot) 0.7.0 | Feetech 电机总线、校准文件格式与校准流程、角度归一化约定 |
+| [huggingface/lerobot](https://github.com/huggingface/lerobot) 0.7.0 | Feetech 电机总线、校准流程（写入舵机的零点偏置与行程限位） |
 | [TheRobotStudio/SO-ARM100](https://github.com/TheRobotStudio/SO-ARM100) | `so101_new_calib.urdf`，裁剪掉网格后放在 `backend/soarm/assets/`（Apache-2.0） |
 | [Vector-Wangel/XLeRobot](https://github.com/Vector-Wangel/XLeRobot) | 双臂两套键位同时控制的交互方式；云台舵机挂在总线上的做法 |
 | MediaPipe Hand Landmarker | 手部 21 关键点检测 |
@@ -43,4 +43,4 @@
 - `pyrealsense2` 2.59 的 wheel 在 Ubuntu 26.04 上可直接使用，不需要编译，也不需要 udev 规则。
 - 腕部相机是 OV9732 100° 广角 UVC 模组。
 
-设备报告与实测校正见 [devices/](devices/)。
+设备报告与实测记录见 [devices/](devices/)。

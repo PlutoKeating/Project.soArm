@@ -9,9 +9,8 @@ Python 包 `soarm`，位于 `backend/soarm/`。依赖由仓库根目录的 `pypr
 | `uv run soarm-console [--mock] [--config PATH] [--host H] [--port P]` | 启动控制台（Web 服务 + 控制循环 + 相机线程） |
 | `uv run soarm-tools scan` | 扫描串口上的 STS3215 舵机 |
 | `uv run soarm-tools cameras` | 列出相机并保存快照 |
-| `uv run soarm-tools recover-calibration <arm>` | 从舵机读回已有校准并存成 LeRobot 校准文件 |
-| `uv run soarm-tools calibrate <arm>` | 运行 LeRobot 标准校准流程 |
-| `uv run soarm-tools watch <arm>` | 释放力矩并实时显示关节角度 |
+| `uv run soarm-tools watch <arm> [--once]` | 只读：显示该臂的行程限位并实时显示关节角度 |
+| `uv run soarm-tools calibrate <arm>` | 运行 LeRobot 标准校准流程，结果写入舵机（一般不需要） |
 | `uv run soarm-tools head-watch` | 释放云台力矩并显示原始刻度 |
 
 ## 文件
@@ -41,13 +40,13 @@ uv run pytest
 ```
 
 - `test_kinematics.py`：正逆解往返、初始位与休息位合理性、外参求解。
-- `test_controller.py`：用模拟臂和假相机逐拍驱动控制器，覆盖三种模式与急停、限速、工作空间、受阻让位。
+- `test_controller.py`：用模拟臂和假相机逐拍驱动控制器，覆盖三种模式与急停、限速、工作空间、受阻让位、单臂停用、中柱避让。
 - `test_api.py`：经 HTTP / WebSocket 走一遍接口；检测器加载（未下载模型时跳过）。
 
 测试不打开任何串口或相机。
 
 ## 配置
 
-见 `config/config.example.yaml` 与 `soarm/config.py`。标定结果写入 `calibration/extrinsics.yaml`；机械臂校准文件由 LeRobot 管理，默认在 `~/.cache/huggingface/lerobot/calibration/robots/so_follower/`。
+见 `config/config.example.yaml` 与 `soarm/config.py`。外参标定结果写入 `calibration/extrinsics.yaml`。机械臂的校准保存在舵机里，不使用校准文件。
 
 架构说明见 [ARCHITECTURE.md](ARCHITECTURE.md)。
