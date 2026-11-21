@@ -1,0 +1,292 @@
+"""相机采集线程：取帧、跑手部检测、锁定“主手”、输出带标注的 JPEG。
+
+每路相机一个 CameraWorker。相机打不开不会让程序退出，而是标记错误并定时重试，
+这样没插相机或没上电时控制台照样能起来。
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+import time
+from dataclasses import dataclass
+
+import cv2
+import numpy as np
+
+from ..config import CameraConfig, DetectorConfig
+from .hand import HAND_CONNECTIONS, Hand, HandDetector
+
+logger = logging.getLogger(__name__)
+
+_ROTATE = {90: cv2.ROTATE_90_CLOCKWISE, 180: cv2.ROTATE_180, 270: cv2.ROTATE_90_COUNTERCLOCKWISE}
+_RETRY_S = 3.0
+
+
+@dataclass
+class Intrinsics:
+    fx: float
+    fy: float
+    cx: float
+    cy: float
+
+
+class _OpenCVSource:
+    def __init__(self, cfg: CameraConfig):
+        device: int | str = int(cfg.device) if str(cfg.device).isdigit() else cfg.device
+        self.cap = cv2.VideoCapture(device, cv2.CAP_V4L2)
+        if not self.cap.isOpened():
+            raise RuntimeError(f"无法打开相机 {cfg.device!r}")
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, cfg.width)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cfg.height)
+        self.cap.set(cv2.CAP_PROP_FPS, cfg.fps)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self.intrinsics: Intrinsics | None = None
+
+    def read(self) -> tuple[np.ndarray, np.ndarray | None]:
+        ok, frame = self.cap.read()
+        if not ok:
+            raise RuntimeError("相机读帧失败")
+        return frame, None
+
+    def close(self) -> None:
+        self.cap.release()
+
+
+class _RealSenseSource:
+    """彩色 + 对齐到彩色的深度（米）。"""
+
+    def __init__(self, cfg: CameraConfig):
+        import pyrealsense2 as rs
+
+        self._rs = rs
+        self.pipeline = rs.pipeline()
+        rs_cfg = rs.config()
+        if cfg.device:
+            rs_cfg.enable_device(str(cfg.device))
+        rs_cfg.enable_stream(rs.stream.color, cfg.width, cfg.height, rs.format.bgr8, cfg.fps)
+        rs_cfg.enable_stream(rs.stream.depth, cfg.width, cfg.height, rs.format.z16, cfg.fps)
+        profile = self.pipeline.start(rs_cfg)
+        self._scale = profile.get_device().first_depth_sensor().get_depth_scale()
+        self._align = rs.align(rs.stream.color)
+        intr = profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+        self.intrinsics: Intrinsics | None = Intrinsics(intr.fx, intr.fy, intr.ppx, intr.ppy)
+
+    def read(self) -> tuple[np.ndarray, np.ndarray | None]:
+        frames = self._align.process(self.pipeline.wait_for_frames(2000))
+        color, depth = frames.get_color_frame(), frames.get_depth_frame()
+        if not color or not depth:
+            raise RuntimeError("RealSense 丢帧")
+        return (
+            np.asanyarray(color.get_data()).copy(),
+            np.asanyarray(depth.get_data()).astype(np.float32) * self._scale,
+        )
+
+    def close(self) -> None:
+        self.pipeline.stop()
+
+
+def deproject(intr: Intrinsics, u: float, v: float, depth_m: float) -> np.ndarray:
+    """像素 + 深度 -> 相机光学系坐标（x 右、y 下、z 前，米）。"""
+    return np.array([(u - intr.cx) / intr.fx * depth_m, (v - intr.cy) / intr.fy * depth_m, depth_m])
+
+
+def depth_at(depth: np.ndarray, u: float, v: float, radius: int = 6) -> float | None:
+    """取 (u, v) 周围小块的有效深度中位数；无有效值返回 None。"""
+    h, w = depth.shape
+    u0, v0 = int(round(u)), int(round(v))
+    patch = depth[max(0, v0 - radius) : min(h, v0 + radius + 1), max(0, u0 - radius) : min(w, u0 + radius + 1)]
+    valid = patch[patch > 0.05]
+    if valid.size < 5:
+        return None
+    return float(np.median(valid))
+
+
+class CameraWorker:
+    def __init__(self, name: str, cfg: CameraConfig, det_cfg: DetectorConfig, detector_factory):
+        self.name = name
+        self.cfg = cfg
+        self._det_cfg = det_cfg
+        self._detector_factory = detector_factory
+        self._lock = threading.Lock()
+        self._frame: np.ndarray | None = None
+        self._depth: np.ndarray | None = None
+        self._hands: list[Hand] = []
+        self._primary: Hand | None = None
+        self._primary_time = 0.0
+        self._frame_time = 0.0
+        self.intrinsics: Intrinsics | None = None
+        self.error: str | None = "未启动"
+        self.fps = 0.0
+        self.detect_fps = 0.0
+        # 由控制层设置，仅用于画面标注
+        self.overlay_text = ""
+        self.overlay_active = False
+        self.deadzone = 0.0
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name=f"cam-{name}", daemon=True)
+
+    # ---------- 生命周期 ----------
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=3)
+
+    def _open(self):
+        if self.cfg.type == "realsense":
+            return _RealSenseSource(self.cfg)
+        if self.cfg.type == "opencv":
+            if self.cfg.device == "":
+                raise RuntimeError("未配置 device")
+            return _OpenCVSource(self.cfg)
+        raise RuntimeError(f"未知相机类型 {self.cfg.type}")
+
+    def _run(self) -> None:
+        detector: HandDetector | None = None
+        if self.cfg.detect:
+            try:
+                detector = self._detector_factory()
+            except Exception as e:  # 模型缺失等：相机仍可看画面，只是没有检测
+                logger.error("相机 %s 的手部检测器初始化失败: %s", self.name, e)
+                self.detect_error = str(e)
+        min_interval = 1.0 / self._det_cfg.max_fps
+        while not self._stop.is_set():
+            try:
+                source = self._open()
+            except Exception as e:
+                self.error = str(e)
+                self._stop.wait(_RETRY_S)
+                continue
+            self.intrinsics = source.intrinsics
+            self.error = None
+            logger.info("相机 %s 已打开", self.name)
+            last_detect = 0.0
+            t_prev = time.monotonic()
+            try:
+                while not self._stop.is_set():
+                    frame, depth = source.read()
+                    if self.cfg.rotate in _ROTATE:
+                        frame = cv2.rotate(frame, _ROTATE[self.cfg.rotate])
+                        if depth is not None:
+                            depth = cv2.rotate(depth, _ROTATE[self.cfg.rotate])
+                    now = time.monotonic()
+                    self.fps = 0.9 * self.fps + 0.1 / max(now - t_prev, 1e-3)
+                    t_prev = now
+                    hands = None
+                    if detector is not None and now - last_detect >= min_interval:
+                        self.detect_fps = 0.8 * self.detect_fps + 0.2 / max(now - last_detect, 1e-3)
+                        last_detect = now
+                        hands = detector.detect(frame, int(now * 1000))
+                        if depth is not None and self.intrinsics is not None:
+                            self._attach_depth(hands, depth, frame.shape)
+                    with self._lock:
+                        self._frame, self._depth, self._frame_time = frame, depth, now
+                        if hands is not None:
+                            self._hands = hands
+                            self._update_primary(hands, now)
+            except Exception as e:
+                self.error = str(e)
+                logger.warning("相机 %s 出错: %s", self.name, e)
+            finally:
+                source.close()
+                with self._lock:
+                    self._hands, self._primary = [], None
+            self._stop.wait(_RETRY_S)
+        if detector is not None:
+            detector.close()
+
+    detect_error: str | None = None
+
+    # ---------- 检测后处理 ----------
+    def _attach_depth(self, hands: list[Hand], depth: np.ndarray, shape) -> None:
+        h, w = shape[:2]
+        for hand in hands:
+            u, v = hand.cx * w, hand.cy * h
+            d = depth_at(depth, u, v)
+            if d is not None:
+                hand.xyz = deproject(self.intrinsics, u, v, d)
+
+    def _nearness(self, hand: Hand) -> float:
+        """越大越近。有深度用深度，否则用画面中的大小。"""
+        if hand.xyz is not None:
+            return -float(hand.xyz[2])
+        return hand.size
+
+    def _update_primary(self, hands: list[Hand], now: float) -> None:
+        """锁定最近的手；已锁定时优先延续同一只（按画面位置就近匹配），直到它消失。"""
+        if self._depth is not None:
+            hands = [h for h in hands if h.xyz is not None]
+        if not hands:
+            if now - self._primary_time > 0.4:
+                self._primary = None
+            return
+        prev = self._primary
+        if prev is not None:
+            nearest = min(hands, key=lambda h: (h.cx - prev.cx) ** 2 + (h.cy - prev.cy) ** 2)
+            if np.hypot(nearest.cx - prev.cx, nearest.cy - prev.cy) < 0.25:
+                self._primary, self._primary_time = nearest, now
+                return
+        self._primary, self._primary_time = max(hands, key=self._nearness), now
+
+    # ---------- 对外读取 ----------
+    def primary_hand(self, max_age_s: float = 0.4) -> Hand | None:
+        with self._lock:
+            if self._primary is None or time.monotonic() - self._primary_time > max_age_s:
+                return None
+            return self._primary
+
+    def hand_count(self) -> int:
+        with self._lock:
+            return len(self._hands)
+
+    def point_at(self, u_norm: float, v_norm: float) -> np.ndarray | None:
+        """归一化像素处的 3D 点（相机光学系）。仅深度相机可用，标定时使用。"""
+        with self._lock:
+            depth, intr = self._depth, self.intrinsics
+        if depth is None or intr is None:
+            return None
+        h, w = depth.shape
+        d = depth_at(depth, u_norm * w, v_norm * h, radius=3)
+        return None if d is None else deproject(intr, u_norm * w, v_norm * h, d)
+
+    def jpeg(self, quality: int = 70) -> bytes:
+        with self._lock:
+            frame = None if self._frame is None else self._frame.copy()
+            hands, primary = list(self._hands), self._primary
+            stale = time.monotonic() - self._frame_time > 1.0
+        if frame is None or stale or self.error:
+            frame = np.full((self.cfg.height, self.cfg.width, 3), 28, np.uint8)
+            # 具体原因由前端用中文显示（OpenCV 画不了中文），这里只画一个居中的占位标记
+            size = cv2.getTextSize("NO SIGNAL", cv2.FONT_HERSHEY_SIMPLEX, 1.0, 2)[0]
+            origin = ((frame.shape[1] - size[0]) // 2, (frame.shape[0] + size[1]) // 2)
+            cv2.putText(frame, "NO SIGNAL", origin, cv2.FONT_HERSHEY_SIMPLEX, 1.0, (90, 90, 110), 2)
+        else:
+            self._annotate(frame, hands, primary)
+        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
+        return buf.tobytes() if ok else b""
+
+    def _annotate(self, frame: np.ndarray, hands: list[Hand], primary: Hand | None) -> None:
+        h, w = frame.shape[:2]
+        cx, cy = w // 2, h // 2
+        if self.deadzone > 0:
+            dx, dy = int(self.deadzone * w / 2), int(self.deadzone * h / 2)
+            cv2.rectangle(frame, (cx - dx, cy - dy), (cx + dx, cy + dy), (200, 200, 200), 1)
+        cv2.drawMarker(frame, (cx, cy), (200, 200, 200), cv2.MARKER_CROSS, 14, 1)
+        for hand in hands:
+            is_primary = hand is primary
+            color = (80, 220, 120) if is_primary else (150, 150, 150)
+            pts = (hand.landmarks * [w, h]).astype(int)
+            for a, b in HAND_CONNECTIONS:
+                cv2.line(frame, tuple(pts[a]), tuple(pts[b]), color, 2 if is_primary else 1)
+            center = (int(hand.cx * w), int(hand.cy * h))
+            cv2.circle(frame, center, 6, color, -1)
+            if is_primary and self.overlay_active:
+                cv2.line(frame, (cx, cy), center, (60, 180, 255), 2)
+            if hand.xyz is not None:
+                cv2.putText(frame, f"{hand.xyz[2]:.2f} m", (center[0] + 10, center[1] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        if self.overlay_text:
+            cv2.putText(frame, self.overlay_text, (10, h - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (60, 180, 255), 2)

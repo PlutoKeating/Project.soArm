@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  来源：TheRobotStudio/SO-ARM100 仓库 Simulation/SO101/so101_new_calib.urdf（Apache-2.0）。
+  本文件由 scripts/fetch_references.sh 下载的原文件裁剪得到：仅保留 link/joint 运动学定义，
+  去掉了 visual/collision/inertial/transmission，因此不依赖 STL 网格。
+-->
+<!-- Generated using onshape-to-robot -->
+<!-- Onshape https://cad.onshape.com/documents/7715cc284bb430fe6dab4ffd/w/4fd0791b683777b02f8d975a/e/826c553ede3b7592eb9ca800 -->
+<robot name="so101_new_calib">
+  <!-- Materials -->
+  <material name="3d_printed">
+    <color rgba="1.0 0.82 0.12 1.0"/>
+  </material>
+  <material name="sts3215">
+    <color rgba="0.1 0.1 0.1 1.0"/>
+  </material>
+  <!-- Link base -->
+  <link name="base_link">
+    <!-- Part base_motor_holder_so101_v1 -->
+    <!-- Part base_so101_v2 -->
+    <!-- Part sts3215_03a_v1 -->
+    <!-- Part waveshare_mounting_plate_so101_v2 -->
+  </link>
+  <!-- Link shoulder -->
+  <link name="shoulder_link">
+    <!-- Part sts3215_03a_v1_2 -->
+    <!-- Part motor_holder_so101_base_v1 -->
+    <!-- Part rotation_pitch_so101_v1 -->
+  </link>
+  <!-- Link upper_arm -->
+  <link name="upper_arm_link">
+    <!-- Part sts3215_03a_v1_3 -->
+    <!-- Part upper_arm_so101_v1 -->
+  </link>
+  <!-- Link lower_arm -->
+  <link name="lower_arm_link">
+    <!-- Part under_arm_so101_v1 -->
+    <!-- Part motor_holder_so101_wrist_v1 -->
+    <!-- Part sts3215_03a_v1_4 -->
+  </link>
+  <!-- Link wrist -->
+  <link name="wrist_link">
+    <!-- Part sts3215_03a_no_horn_v1 -->
+    <!-- Part wrist_roll_pitch_so101_v2 -->
+  </link>
+  <!-- Link gripper -->
+  <link name="gripper_link">
+    <!-- Part sts3215_03a_v1_5 -->
+    <!-- Part wrist_roll_follower_so101_v1 -->
+  </link>
+  <!-- Gripper frame (dummy link + fixed joint) -->
+  <link name="gripper_frame_link">
+    <origin xyz="0 0 0" rpy="0 -0 0"/>
+  </link>
+  <joint name="gripper_frame_joint" type="fixed">
+    <origin xyz="-0.0079 -0.000218121 -0.0981274" rpy="0 3.14159 0"/>
+    <parent link="gripper_link"/>
+    <child link="gripper_frame_link"/>
+    <axis xyz="0 0 0"/>
+  </joint>
+  <!-- Link moving_jaw_so101_v1 -->
+  <link name="moving_jaw_so101_v1_link">
+    <!-- Part moving_jaw_so101_v1 -->
+  </link>
+  <!-- Joint from gripper to moving_jaw_so101_v1 -->
+  <joint name="gripper" type="revolute">
+    <origin xyz="0.0202 0.0188 -0.0234" rpy="1.5708 -5.24284e-08 -1.41553e-15"/>
+    <parent link="gripper_link"/>
+    <child link="moving_jaw_so101_v1_link"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-0.174533" upper="1.74533"/>
+  </joint>
+  <!-- Joint from wrist to gripper -->
+  <joint name="wrist_roll" type="revolute">
+    <origin xyz="5.55112e-17 -0.0611 0.0181" rpy="1.5708 0.0486795 3.14159"/>
+    <parent link="wrist_link"/>
+    <child link="gripper_link"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-2.74385" upper="2.84121"/>
+  </joint>
+  <!-- Joint from lower_arm to wrist -->
+  <joint name="wrist_flex" type="revolute">
+    <origin xyz="-0.1349 0.0052 3.62355e-17" rpy="4.02456e-15 8.67362e-16 -1.5708"/>
+    <parent link="lower_arm_link"/>
+    <child link="wrist_link"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-1.65806" upper="1.65806"/>
+  </joint>
+  <!-- Joint from upper_arm to lower_arm -->
+  <!-- Note: 5-degree calibration offset applied to joint limits -->
+  <joint name="elbow_flex" type="revolute">
+    <origin xyz="-0.11257 -0.028 1.73763e-16" rpy="-3.63608e-16 8.74301e-16 1.5708"/>
+    <parent link="upper_arm_link"/>
+    <child link="lower_arm_link"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-1.69" upper="1.69"/>
+  </joint>
+  <!-- Joint from shoulder to upper_arm -->
+  <joint name="shoulder_lift" type="revolute">
+    <origin xyz="-0.0303992 -0.0182778 -0.0542" rpy="-1.5708 -1.5708 0"/>
+    <parent link="shoulder_link"/>
+    <child link="upper_arm_link"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-1.74533" upper="1.74533"/>
+  </joint>
+  <!-- Joint from base to shoulder -->
+  <joint name="shoulder_pan" type="revolute">
+    <origin xyz="0.0388353 -8.97657e-09 0.0624" rpy="3.14159 4.18253e-17 -3.14159"/>
+    <parent link="base_link"/>
+    <child link="shoulder_link"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="10" velocity="10" lower="-1.91986" upper="1.91986"/>
+  </joint> 
+</robot>

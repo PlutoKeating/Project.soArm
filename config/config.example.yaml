@@ -1,0 +1,40 @@
+# 复制为 config/config.yaml 后按本机情况修改。config.yaml 不入库。
+# 这里只列出必须按本机填写的项；其余参数（限速、跟随增益、工作空间等）的默认值
+# 和含义见 backend/soarm/config.py，需要调整时把对应字段写到这里覆盖即可。
+
+arms:
+  left:
+    port: ""            # soarm-tools scan 输出的串口路径，优先用 /dev/serial/by-id/...
+    camera: wrist_left
+    # 腕部跟随方向反了时改成 -1（上真机后各验证一次）
+    follow_pan_sign: 1.0
+    follow_tilt_sign: 1.0
+  right:
+    port: ""
+    camera: wrist_right
+    follow_pan_sign: 1.0
+    follow_tilt_sign: 1.0
+
+head:
+  port: ""              # 留空表示不使用云台
+  pan:  {id: 1, center: 2048, min: 1500, max: 2600}   # 用 soarm-tools head-watch 确定
+  tilt: {id: 2, center: 2048, min: 1700, max: 2400}
+
+cameras:
+  wrist_left:
+    type: opencv
+    device: ""          # soarm-tools cameras 输出的 /dev/v4l/by-path/...-index0 路径
+    rotate: 0           # 画面是倒的或侧的时改成 90 / 180 / 270
+  wrist_right:
+    type: opencv
+    device: ""
+    rotate: 0
+  head:
+    type: realsense
+    device: ""          # RealSense 序列号，留空取第一台
+
+# 展会场景建议保持默认。内部调试想更灵敏时可调大：
+# safety:
+#   max_joint_speed_deg_s: 45
+# follow:
+#   gain: 1.6

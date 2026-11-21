@@ -1,0 +1,220 @@
+"""配置：默认值写在 dataclass 里，config/config.yaml 只需覆盖与本机有关的项。"""
+
+from __future__ import annotations
+
+import dataclasses
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_CONFIG_PATH = REPO_ROOT / "config" / "config.yaml"
+
+
+@dataclass
+class ServerConfig:
+    host: str = "127.0.0.1"
+    port: int = 8000
+
+
+@dataclass
+class ArmConfig:
+    port: str = ""  # 建议用 /dev/serial/by-id/... 的稳定路径
+    calibration_id: str = ""  # LeRobot 校准文件的 id，默认与臂名相同
+    camera: str = ""  # 对应腕部相机在 cameras 里的名字
+    # 腕部相机画面与关节方向的对应关系，取 +1 或 -1，上真机后各按一次键确认
+    follow_pan_sign: float = 1.0
+    follow_tilt_sign: float = 1.0
+    # 夹爪参考点朝另一只臂方向最多能伸多远（米），防止两臂越过中线相撞
+    inward_limit: float = 0.10
+    # 在本臂基座系里，“朝向另一只臂”是 +y 还是 -y
+    inward_y_sign: float = 1.0
+
+
+@dataclass
+class HeadMotorConfig:
+    id: int = 1
+    center: int = 2048  # 预设“朝前”姿态的原始刻度（0-4095）
+    min: int = 1500
+    max: int = 2600
+
+
+@dataclass
+class HeadConfig:
+    port: str = ""
+    pan: HeadMotorConfig = field(default_factory=lambda: HeadMotorConfig(id=1))
+    tilt: HeadMotorConfig = field(default_factory=lambda: HeadMotorConfig(id=2))
+    # 键盘调整云台的速度（度/秒）
+    speed_deg_s: float = 25.0
+
+
+@dataclass
+class CameraConfig:
+    type: str = "opencv"  # opencv | realsense
+    device: str = ""  # opencv: /dev/v4l/by-path/... 或整数索引；realsense: 序列号，留空取第一台
+    width: int = 640
+    height: int = 480
+    fps: int = 30
+    rotate: int = 0  # 0 / 90 / 180 / 270，顺时针
+    hfov_deg: float = 70.0  # 水平视场角，仅腕部对准用于把像素误差换算成角度
+    detect: bool = True  # 是否在此相机上跑手部检测
+
+
+@dataclass
+class SafetyConfig:
+    """展会场景的保守默认值。"""
+
+    max_joint_speed_deg_s: float = 45.0  # 任何模式下单关节目标的变化速率上限
+    home_speed_deg_s: float = 25.0  # 回初始位的速度
+    max_torque_limit: int = 500  # Feetech Max_Torque_Limit，满量程 1000
+    acceleration: int = 40  # Feetech Acceleration 寄存器，越小越柔
+    # 夹爪参考点在本臂基座系下允许的范围（米）
+    x_range: tuple[float, float] = (0.10, 0.38)
+    y_range: tuple[float, float] = (-0.24, 0.24)
+    z_range: tuple[float, float] = (0.06, 0.40)
+    pitch_range_deg: tuple[float, float] = (-70.0, 60.0)
+    ik_pos_tolerance: float = 0.012  # IK 位置残差超过它就拒绝这一步
+    key_timeout_s: float = 0.35  # 这么久没收到按键心跳就视为全部松开
+    joint_limit_margin_deg: float = 5.0
+    # 关节实际位置与目标偏差过大（被人挡住/顶住）时暂停该臂
+    stall_error_deg: float = 25.0
+
+
+@dataclass
+class KeyboardConfig:
+    linear_speed: float = 0.06  # 米/秒
+    pitch_speed_deg_s: float = 35.0
+    roll_speed_deg_s: float = 60.0
+    gripper_speed: float = 70.0  # 夹爪开合度 0-100，每秒变化量
+
+
+@dataclass
+class FollowConfig:
+    """第 2 步：腕部相机只对准、不调距离。"""
+
+    gain: float = 1.6  # 每秒修正掉的角度误差比例
+    deadzone: float = 0.06  # 归一化画面坐标（半幅为 1）内的死区
+    smoothing: float = 0.35  # 手部位置的指数平滑系数，越大越跟手
+    max_speed_deg_s: float = 40.0
+    pan_range_deg: tuple[float, float] = (-70.0, 70.0)  # 相对初始位的偏转范围
+    tilt_range_deg: tuple[float, float] = (-35.0, 40.0)
+    lost_timeout_s: float = 1.5  # 丢失手这么久后开始回初始位
+    min_hand_score: float = 0.5
+
+
+@dataclass
+class FusedConfig:
+    """第 3 步：深度相机全局引导 + 腕部精调。"""
+
+    standoff: float = 0.25  # 夹爪参考点与手保持的距离（米）
+    min_reach: float = 0.22  # 手逼近时夹爪最多缩回到离肩部这么近
+    max_reach: float = 0.35  # 夹爪参考点离肩部的最大距离
+    linear_speed: float = 0.10  # 引导时末端的最大线速度（米/秒）
+    depth_range: tuple[float, float] = (0.25, 1.6)  # 认可的手部深度范围（米）
+    switch_hysteresis: float = 0.06  # 换臂的滞回距离（米）
+    wrist_trim_limit_deg: float = 25.0  # 腕部精调在引导姿态上叠加的最大角度
+    lost_timeout_s: float = 1.5
+
+
+@dataclass
+class DetectorConfig:
+    backend: str = "mediapipe"
+    model_path: str = "models/hand_landmarker.task"
+    max_hands: int = 2
+    min_confidence: float = 0.5
+    max_fps: float = 20.0  # 每路相机的检测频率上限
+
+
+@dataclass
+class Config:
+    mock: bool = False
+    control_hz: float = 30.0
+    server: ServerConfig = field(default_factory=ServerConfig)
+    arms: dict[str, ArmConfig] = field(
+        default_factory=lambda: {
+            "left": ArmConfig(calibration_id="left", camera="wrist_left", inward_y_sign=-1.0),
+            "right": ArmConfig(calibration_id="right", camera="wrist_right", inward_y_sign=1.0),
+        }
+    )
+    head: HeadConfig = field(default_factory=HeadConfig)
+    cameras: dict[str, CameraConfig] = field(
+        default_factory=lambda: {
+            "wrist_left": CameraConfig(),
+            "wrist_right": CameraConfig(),
+            "head": CameraConfig(type="realsense", hfov_deg=69.0),
+        }
+    )
+    head_camera: str = "head"
+    # 初始位（度）。夹爪水平朝前，夹爪参考点约在基座前方 26 cm、高 22 cm 处
+    home: dict[str, float] = field(
+        default_factory=lambda: {
+            "shoulder_pan": 0.0,
+            "shoulder_lift": -75.0,
+            "elbow_flex": 60.0,
+            "wrist_flex": 10.0,
+            "wrist_roll": 0.0,
+            "gripper": 0.0,
+        }
+    )
+    # 休息位（度）。折叠收拢，到位后可以安全释放力矩
+    rest: dict[str, float] = field(
+        default_factory=lambda: {
+            "shoulder_pan": 0.0,
+            "shoulder_lift": -95.0,
+            "elbow_flex": 90.0,
+            "wrist_flex": 60.0,
+            "wrist_roll": 0.0,
+            "gripper": 0.0,
+        }
+    )
+    safety: SafetyConfig = field(default_factory=SafetyConfig)
+    keyboard: KeyboardConfig = field(default_factory=KeyboardConfig)
+    follow: FollowConfig = field(default_factory=FollowConfig)
+    fused: FusedConfig = field(default_factory=FusedConfig)
+    detector: DetectorConfig = field(default_factory=DetectorConfig)
+    # 标定结果（外参、云台预设）保存位置
+    calibration_dir: str = "calibration"
+
+    def path(self, relative: str) -> Path:
+        p = Path(relative)
+        return p if p.is_absolute() else REPO_ROOT / p
+
+
+def _merge(obj: Any, data: dict[str, Any], where: str) -> None:
+    for key, value in data.items():
+        if not hasattr(obj, key):
+            raise ValueError(f"配置项 {where}{key} 不存在")
+        current = getattr(obj, key)
+        if dataclasses.is_dataclass(current) and isinstance(value, dict):
+            _merge(current, value, f"{where}{key}.")
+        elif isinstance(current, dict) and isinstance(value, dict):
+            for name, item in value.items():
+                if name in current and dataclasses.is_dataclass(current[name]) and isinstance(item, dict):
+                    _merge(current[name], item, f"{where}{key}.{name}.")
+                elif current and dataclasses.is_dataclass(next(iter(current.values()))):
+                    new = type(next(iter(current.values())))()
+                    _merge(new, item, f"{where}{key}.{name}.")
+                    current[name] = new
+                else:
+                    current[name] = item
+        elif isinstance(current, tuple):
+            setattr(obj, key, tuple(value))
+        else:
+            setattr(obj, key, value)
+
+
+def load_config(path: str | os.PathLike | None = None) -> Config:
+    cfg = Config()
+    p = Path(path) if path else DEFAULT_CONFIG_PATH
+    if p.exists():
+        data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        _merge(cfg, data, "")
+    elif path:
+        raise FileNotFoundError(f"找不到配置文件 {p}")
+    for name, arm in cfg.arms.items():
+        if not arm.calibration_id:
+            arm.calibration_id = name
+    return cfg
