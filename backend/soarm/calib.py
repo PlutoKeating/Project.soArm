@@ -164,16 +164,65 @@ def _segment_distance(points: np.ndarray, skeleton: np.ndarray) -> np.ndarray:
     return best
 
 
+def fit_floor_normal(depth: np.ndarray, intrinsics: tuple[float, float, float, float]) -> tuple[np.ndarray, float]:
+    """从一帧深度图里找出地面，返回 (相机系下朝上的单位法线, 相机离地高度/米)。
+
+    地面是画面里最大的平面。它的法线就是世界的“上”，由此可以直接定出相机的俯仰和横滚。
+    """
+    fx, fy, cx, cy = intrinsics
+    h, w = depth.shape
+    v, u = np.mgrid[0:h:6, 0:w:6]
+    z = depth[v, u]
+    ok = (z > 0.6) & (z < 4.0)  # 0.6 米以内是手臂和近处的人，不是地面
+    if ok.sum() < 200:
+        raise ValueError("画面里几乎没有地面，无法确定相机的俯仰")
+    pts = np.stack([(u[ok] - cx) / fx * z[ok], (v[ok] - cy) / fy * z[ok], z[ok]], axis=1)
+    rng = np.random.default_rng(0)
+    best_count, best_mask = 0, None
+    for _ in range(300):
+        a, b, c = pts[rng.choice(len(pts), 3, replace=False)]
+        n = np.cross(b - a, c - a)
+        norm = np.linalg.norm(n)
+        if norm < 1e-6:
+            continue
+        mask = np.abs((pts - a) @ (n / norm)) < 0.02
+        if mask.sum() > best_count:
+            best_count, best_mask = int(mask.sum()), mask
+    plane = pts[best_mask]
+    centre = plane.mean(axis=0)
+    normal = np.linalg.svd(plane - centre)[2][-1]
+    if normal @ centre > 0:
+        normal = -normal  # 朝向相机一侧，即朝上
+    return normal, float(abs(normal @ centre))
+
+
+def _rotation_from_up(up_cam: np.ndarray, yaw: float) -> np.ndarray:
+    """相机系到基座系的旋转：up_cam 映到基座 +z，光轴的水平分量指向方位角 yaw。"""
+    z_axis = up_cam / np.linalg.norm(up_cam)
+    forward = np.array([0.0, 0.0, 1.0]) - z_axis[2] * z_axis  # 光轴在水平面内的投影（相机系下）
+    if np.linalg.norm(forward) < 1e-6:
+        forward = np.array([0.0, -1.0, 0.0]) - (-z_axis[1]) * z_axis  # 相机垂直朝下时用画面的“上”
+    x_axis = forward / np.linalg.norm(forward)
+    y_axis = np.cross(z_axis, x_axis)
+    R_level = np.stack([x_axis, y_axis, z_axis])  # 相机系 -> “相机朝前的水平系”
+    c, s_ = np.cos(yaw), np.sin(yaw)
+    return np.array([[c, -s_, 0.0], [s_, c, 0.0], [0.0, 0.0, 1.0]]) @ R_level
+
+
 def solve_from_body(
     observations: list[BodyObservation],
-    pitch_down_deg: float,
-    link_radius: float = 0.022,
+    up_cam: np.ndarray,
+    link_radius: float = 0.025,
 ) -> tuple[np.ndarray, float, int]:
     """用机械臂自身当标定物求 T_base_cam。返回 (4x4 变换, 点到手臂表面的 RMS 距离/米, 采用的点数)。
 
     让机械臂摆若干姿态，深度相机每次看到的手臂点云，换到基座系后都应该贴在该姿态的
-    骨架周围。对 6 个外参做多初值的非线性最小二乘。相机低头的角度可以从地面测出来，
-    用它缩小初值范围；相机大致在臂的上方、朝前，这一点也用来排初值。
+    骨架周围。几点做法：
+    - 相机的俯仰和横滚不拟合，直接用地面法线 up_cam 定死（假定机械臂底座是水平的）。
+      只解绕竖直轴的 1 个转角加 3 个平移，共 4 个参数，条件比解 6 个好得多。
+    - 两个方向的约束都要：看到的点要贴着模型；模型的夹爪处也必须有点。只有前者的话，
+      模型可以沿手臂方向滑出去而不受罚。
+    - 先粗解，把离模型远的点（另一只臂、路过的人）剔掉，再精解。
     """
     if len(observations) < 4:
         raise ValueError("至少需要 4 个姿态")
@@ -181,70 +230,80 @@ def solve_from_body(
     clouds = [np.asarray(o.cam_points, float) for o in observations]
     if sum(len(c) for c in clouds) < 200:
         raise ValueError("手臂点云太少：相机可能看不到手臂")
-    cap = 0.08  # 残差封顶：远处的点（路人、线缆）不让它们主导结果
+    cap = 0.08  # 残差封顶：远处的点不让它们主导结果
+    # 每个姿态在夹爪那一段上取几个模型点，用来做“模型处必须有点”的反向约束
+    probes = [np.array([sk[-2] + f * (sk[-1] - sk[-2]) for f in (0.35, 0.6, 0.85, 1.0)]) for sk in skeletons]
 
-    def residuals(params, R0):
-        R = R0 @ _rotvec_to_matrix(params[:3])
+    def transform(params):
+        return _rotation_from_up(up_cam, params[0]), params[1:]
+
+    def residuals(params, use):
+        R, t = transform(params)
         out = []
-        for skel, cloud in zip(skeletons, clouds):
-            d = _segment_distance(cloud @ R.T + params[3:], skel) - link_radius
-            out.append(np.clip(d, -cap, cap))
+        for skel, cloud, probe, keep in zip(skeletons, clouds, probes, use):
+            pts = cloud[keep] @ R.T + t
+            out.append(np.clip(_segment_distance(pts, skel) - link_radius, -cap, cap))
+            if len(pts):
+                nearest = np.linalg.norm(pts[None, :, :] - probe[:, None, :], axis=2).min(axis=1)
+                out.append(2.0 * np.clip(nearest - link_radius, 0.0, cap))
         return np.concatenate(out)
 
-    def refine(R0, t0, iters=30):
-        params = np.concatenate([np.zeros(3), t0])
+    def refine(params, use, iters):
         lam = 1e-2
-        res = residuals(params, R0)
+        res = residuals(params, use)
         cost = float(res @ res)
+        steps = np.array([1e-4, 1e-4, 1e-4, 1e-4])
         for _ in range(iters):
-            J = np.empty((res.size, 6))
-            for i in range(6):
-                step = np.zeros(6)
-                step[i] = 1e-4
-                J[:, i] = (residuals(params + step, R0) - res) / 1e-4
-            delta = np.linalg.solve(J.T @ J + lam * np.eye(6), -J.T @ res)
-            trial = params + delta
-            trial_res = residuals(trial, R0)
+            J = np.empty((res.size, 4))
+            for i in range(4):
+                d = np.zeros(4)
+                d[i] = steps[i]
+                J[:, i] = (residuals(params + d, use) - res) / steps[i]
+            delta = np.linalg.solve(J.T @ J + lam * np.eye(4), -J.T @ res)
+            trial_res = residuals(params + delta, use)
             trial_cost = float(trial_res @ trial_res)
             if trial_cost < cost:
-                params, res, cost, lam = trial, trial_res, trial_cost, max(lam / 3, 1e-8)
+                params, res, cost, lam = params + delta, trial_res, trial_cost, max(lam / 3, 1e-8)
                 if float(np.linalg.norm(delta)) < 1e-7:
                     break
             else:
                 lam *= 4
                 if lam > 1e6:
                     break
-        return R0 @ _rotvec_to_matrix(params[:3]), params[3:], cost
+        return params, cost
 
-    pitch = np.deg2rad(pitch_down_deg)
-    Ry = np.array([[np.cos(pitch), 0, np.sin(pitch)], [0, 1, 0], [-np.sin(pitch), 0, np.cos(pitch)]])
+    everything = [np.ones(len(c), bool) for c in clouds]
     best = None
-    for yaw in (-30.0, -10.0, 10.0, 30.0):
-        cy, sy = np.cos(np.deg2rad(yaw)), np.sin(np.deg2rad(yaw))
-        R0 = np.array([[cy, -sy, 0], [sy, cy, 0], [0, 0, 1]]) @ Ry @ _NOMINAL_R
-        for x in (-0.15, 0.0, 0.15):
-            for y in (-0.35, -0.15, 0.15, 0.35):
-                for z in (0.3, 0.5):
-                    R, t, cost = refine(R0, np.array([x, y, z]), iters=12)
-                    if best is None or cost < best[2]:
-                        best = (R, t, cost)
-    R, t, _ = refine(best[0], best[1], iters=60)
+    for yaw in np.deg2rad([-40.0, -20.0, 0.0, 20.0, 40.0]):
+        for x in (-0.1, 0.05, 0.2):
+            for y in (-0.3, -0.15, 0.0, 0.15, 0.3):
+                for z in (0.3, 0.45, 0.6):
+                    params, cost = refine(np.array([yaw, x, y, z]), everything, 10)
+                    if best is None or cost < best[1]:
+                        best = (params, cost)
+    params, _ = refine(best[0], everything, 40)
+    # 剔除离模型远的点后精解
+    R, t = transform(params)
+    use = [np.abs(_segment_distance(c @ R.T + t, sk) - link_radius) < 0.06 for sk, c in zip(skeletons, clouds)]
+    if sum(int(u.sum()) for u in use) < 200:
+        raise ValueError("贴着手臂模型的点太少，标定不可信")
+    params, _ = refine(params, use, 60)
+    R, t = transform(params)
     dist = np.concatenate([
-        _segment_distance(cloud @ R.T + t, skel) - link_radius for skel, cloud in zip(skeletons, clouds)
+        (_segment_distance(c @ R.T + t, sk) - link_radius)[u] for sk, c, u in zip(skeletons, clouds, use)
     ])
-    inliers = np.abs(dist) < cap
-    if inliers.mean() < 0.5:
-        raise ValueError(f"只有 {inliers.mean():.0%} 的点能贴到手臂模型上，标定不可信")
-    # 合理性：相机装在手臂上方、朝前下方看。对着一堆无关的点（比如路过的人）也可能凑出
-    # 一个残差不大的解，但位置朝向会很离谱，在这里拦下
-    if not 0.15 < t[2] < 1.0 or R[0, 2] < 0.2 or R[2, 2] > -0.1:
+    kept = sum(int(u.sum()) for u in use)
+    if kept < 0.3 * sum(len(c) for c in clouds):
+        raise ValueError(f"只有 {kept / sum(len(c) for c in clouds):.0%} 的点能贴到手臂模型上，标定不可信")
+    # 合理性：相机装在手臂上方、朝前。对着一堆无关的点也可能凑出一个残差不大的解，在这里拦下
+    if not 0.15 < t[2] < 1.0 or R[0, 2] < 0.1:
         raise ValueError(
             f"求出的相机位置 ({t[0]:.2f}, {t[1]:.2f}, {t[2]:.2f}) 或朝向 {np.round(R[:, 2], 2).tolist()} 不合理："
-            "相机应在手臂上方、朝前下方。多半是手臂没进入相机视野，点云里是别的东西"
+            "相机应在手臂上方、朝前。多半是手臂没进入相机视野，点云里是别的东西"
         )
     T = np.eye(4)
     T[:3, :3], T[:3, 3] = R, t
-    return T, float(np.sqrt((dist[inliers] ** 2).mean())), int(inliers.sum())
+    return T, float(np.sqrt((dist**2).mean())), kept
 
 
 def verify_body(
@@ -283,11 +342,37 @@ def verify_body(
     return inside / max(total, 1), confirmed / max(inside, 1)
 
 
+def rotation_between(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """把单位向量 a 转到 b 的最小旋转。"""
+    a, b = a / np.linalg.norm(a), b / np.linalg.norm(b)
+    axis = np.cross(a, b)
+    s_, c = float(np.linalg.norm(axis)), float(a @ b)
+    if s_ < 1e-9:
+        return np.eye(3)
+    return _rotvec_to_matrix(axis / s_ * np.arctan2(s_, c))
+
+
 @dataclass
 class ArmExtrinsic:
     T_base_cam: np.ndarray
     rms: float
     samples: int
+    # 标定时地面法线在相机系下的方向（朝上）。云台俯仰变了之后，用当前测到的地面法线
+    # 与它比较，就能把外参换算到当前俯仰下
+    up_cam: np.ndarray | None = None
+
+    def at(self, up_now: np.ndarray | None) -> np.ndarray:
+        """当前俯仰下的 T_base_cam。up_now 是此刻地面法线在相机系下的方向。
+
+        假定云台只是点头（绕相机的左右轴转），没有左右摇头；并忽略俯仰轴与相机光心之间
+        几厘米的偏距。
+        """
+        if up_now is None or self.up_cam is None:
+            return self.T_base_cam
+        T = self.T_base_cam.copy()
+        # 当前相机系里的点先转到标定时的相机系，再用标定时的外参
+        T[:3, :3] = self.T_base_cam[:3, :3] @ rotation_between(up_now, self.up_cam)
+        return T
 
 
 @dataclass
@@ -301,7 +386,10 @@ class Calibration:
             return cls()
         data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         arms = {
-            name: ArmExtrinsic(np.array(a["T_base_cam"], float), float(a["rms"]), int(a["samples"]))
+            name: ArmExtrinsic(
+                np.array(a["T_base_cam"], float), float(a["rms"]), int(a["samples"]),
+                None if a.get("up_cam") is None else np.array(a["up_cam"], float),
+            )
             for name, a in (data.get("arms") or {}).items()
         }
         return cls(head_preset=data.get("head_preset"), arms=arms)
@@ -315,6 +403,7 @@ class Calibration:
                     "T_base_cam": [[round(float(v), 6) for v in row] for row in a.T_base_cam],
                     "rms": round(a.rms, 5),
                     "samples": a.samples,
+                    "up_cam": None if a.up_cam is None else [round(float(v), 5) for v in a.up_cam],
                 }
                 for name, a in self.arms.items()
             },

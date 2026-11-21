@@ -374,7 +374,7 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
     import numpy as np
 
     from . import lab
-    from .calib import ArmExtrinsic, BodyObservation, Calibration, solve_from_body, verify_body
+    from .calib import ArmExtrinsic, BodyObservation, Calibration, fit_floor_normal, solve_from_body, verify_body
     from .control.controller import Controller
     from .kinematics import ARM_JOINTS
     from .perception.cameras import CameraWorker, deproject
@@ -424,6 +424,9 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
 
         # 背景：手臂还在连接时的姿态（不在相机视野里）
         _, background = depth_median(12)
+        up_cam, cam_height = fit_floor_normal(background, (intr.fx, intr.fy, intr.cx, intr.cy))
+        pitch_down = float(np.degrees(np.arcsin(-up_cam[2])))
+        print(f"由地面测得：相机低头 {pitch_down:.1f}°，离地 {cam_height:.2f} m")
         outward = 1.0 if rt.cfg.inward_y_sign > 0 else -1.0  # 右臂朝外是 +pan（向右），左臂相反
         poses = []
         for k in range(len(_BODY_SHAPES)):  # 先让每个转角都出现一遍，再换形状，这样提前中断时数据也均匀
@@ -463,11 +466,11 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
             if len(pts) >= 40:
                 observations.append(BodyObservation(skeleton, pts))
         (out_dir / "observations.json").write_text(json.dumps({
-            "pitch_down_deg": args.pitch, "intrinsics": [intr.fx, intr.fy, intr.cx, intr.cy], "records": records,
+            "up_cam": up_cam.tolist(), "intrinsics": [intr.fx, intr.fy, intr.cx, intr.cy], "records": records,
         }))
         np.save(out_dir / "background_depth.npy", background.astype(np.float32))
         print(f"有效姿态 {len(observations)}/{len(poses)}，原始数据已存到 {out_dir}")
-        T, rms, used = solve_from_body(observations, args.pitch)
+        T, rms, used = solve_from_body(observations, up_cam)
         print(f"求解：采用 {used} 个点，点到手臂表面的 RMS {rms * 1000:.0f} mm")
         print(f"  相机在 {name} 臂基座系下的位置 x={T[0, 3]:.3f} y={T[1, 3]:.3f} z={T[2, 3]:.3f} m；"
               f"光轴方向 {np.round(T[:3, 2], 2).tolist()}")
@@ -494,8 +497,7 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
         if trusted and not args.dry_run:
             path = cfg.path(cfg.calibration_dir) / "extrinsics.yaml"
             calibration = Calibration.load(path)
-            calibration.arms[name] = ArmExtrinsic(T, rms, used)
-            calibration.head_preset = calibration.head_preset or {"pan": 0.0, "tilt": 0.0}
+            calibration.arms[name] = ArmExtrinsic(T, rms, used, up_cam)
             calibration.save(path)
             print(f"已保存到 {path}")
         finished = True
@@ -552,7 +554,6 @@ def main() -> None:
 
     p = sub.add_parser("body-calib", help="用机械臂自身做手眼标定（不需要人手）")
     p.add_argument("arm")
-    p.add_argument("--pitch", type=float, required=True, help="深度相机低头的角度（度），由地面测得")
     p.add_argument("--poses", type=int, default=16)
     p.add_argument("--dry-run", action="store_true", help="只采集和求解，不保存外参")
     p.set_defaults(func=cmd_body_calib)

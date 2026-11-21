@@ -297,7 +297,12 @@ def test_depth_cue_guides_only_the_arm_that_cannot_see_while_the_other_keeps_fol
 
 
 # ---------------------------------------------------------------- 用机械臂自身做手眼标定
-from soarm.calib import BodyObservation, solve_from_body  # noqa: E402
+from soarm.calib import BodyObservation, fit_floor_normal, solve_from_body  # noqa: E402
+
+
+def _up_in_cam(T):
+    """基座系的“上”在相机系下的方向，相当于由地面测得的法线。"""
+    return T[:3, :3].T @ np.array([0.0, 0.0, 1.0])
 
 
 def _body_observations(T, n_poses=12, noise=0.004, clutter=0, seed=0):
@@ -336,38 +341,68 @@ def test_skeleton_runs_from_shoulder_to_gripper_tip():
 
 def test_body_calibration_recovers_extrinsic_from_arm_point_clouds():
     T = _true_extrinsic()
-    solved, rms, used = solve_from_body(_body_observations(T), pitch_down_deg=35.0)
+    solved, rms, used = solve_from_body(_body_observations(T), _up_in_cam(T))
     assert np.allclose(solved[:3, 3], T[:3, 3], atol=0.015)
     assert np.degrees(np.arccos(np.clip((np.trace(solved[:3, :3].T @ T[:3, :3]) - 1) / 2, -1, 1))) < 3.0
     assert rms < 0.01 and used > 1000
 
 
-def test_body_calibration_tolerates_wrong_pitch_hint_and_clutter():
+def test_body_calibration_tolerates_tilted_floor_estimate_and_clutter():
     T = _true_extrinsic()
     obs = _body_observations(T, clutter=25, seed=2)  # 约 17% 的点不属于手臂
-    solved, rms, _ = solve_from_body(obs, pitch_down_deg=45.0)  # 低头角度提示偏了 10°
+    tilt = np.deg2rad(3.0)  # 地面法线估计偏了 3°（桌面不完全水平）
+    up = _up_in_cam(T) @ np.array([[1, 0, 0], [0, np.cos(tilt), -np.sin(tilt)], [0, np.sin(tilt), np.cos(tilt)]])
+    solved, rms, _ = solve_from_body(obs, up)
+    assert np.allclose(solved[:3, 3], T[:3, 3], atol=0.04)
+
+
+def test_body_calibration_is_not_fooled_when_only_part_of_the_arm_is_seen():
+    """只看到夹爪前半段时，模型不能沿手臂方向滑走：指尖位置必须对上。"""
+    T = _true_extrinsic()
+    obs = _body_observations(T, n_poses=14, seed=6)
+    for o in obs:  # 只保留离指尖 8 厘米以内的点
+        T_base = o.cam_points @ T[:3, :3].T + T[:3, 3]
+        near_tip = np.linalg.norm(T_base - o.skeleton[-1], axis=1) < 0.08
+        o.cam_points = o.cam_points[near_tip]
+    solved, _, _ = solve_from_body(obs, _up_in_cam(T))
     assert np.allclose(solved[:3, 3], T[:3, 3], atol=0.03)
+
+
+def test_fit_floor_normal_recovers_camera_pitch_and_height():
+    fx = fy = 600.0
+    cx, cy, w, h = 320.0, 240.0, 640, 480
+    pitch, height = np.deg2rad(55.0), 1.2
+    # 相机系下的地面：法线朝上（相机 -y 偏向 +z），到原点的距离是 height
+    normal = np.array([0.0, -np.cos(pitch), -np.sin(pitch)])
+    v, u = np.mgrid[0:h, 0:w]
+    rays = np.stack([(u - cx) / fx, (v - cy) / fy, np.ones_like(u, float)], axis=-1)
+    depth = (-height / (rays @ normal)).astype(np.float32)
+    depth[(depth < 0) | (depth > 3.9)] = 0
+    depth[300:480, 0:200] = 0.3  # 画面一角有个近处的东西
+    n, hgt = fit_floor_normal(depth, (fx, fy, cx, cy))
+    assert np.allclose(n, normal, atol=0.02)
+    assert hgt == pytest.approx(height, abs=0.02)
 
 
 def test_body_calibration_refuses_when_arm_is_not_visible():
     T = _true_extrinsic()
     obs = _body_observations(T, n_poses=3)
     with pytest.raises(ValueError):
-        solve_from_body(obs, pitch_down_deg=35.0)
+        solve_from_body(obs, _up_in_cam(T))
     rng = np.random.default_rng(0)
     junk = [BodyObservation(o.skeleton, rng.uniform(-1, 1, (150, 3)) + [0, 0, 2.5]) for o in _body_observations(T)]
     with pytest.raises(ValueError):
-        solve_from_body(junk, pitch_down_deg=35.0)
+        solve_from_body(junk, _up_in_cam(T))
 
 
-def test_body_calibration_rejects_an_implausible_camera_pose():
-    """对着不是手臂的点云（比如路过的人）凑出来的解，位置朝向离谱，要被拦下。"""
-    T_wrong = np.eye(4)
-    T_wrong[:3, :3] = np.array([[0.35, 0.9, 0.2], [-0.92, 0.38, -0.1], [0.16, 0.1, 0.98]])
-    T_wrong[:3, :3] = np.linalg.qr(T_wrong[:3, :3])[0]
-    T_wrong[:3, 3] = [-0.4, 0.39, 0.02]
-    with pytest.raises(ValueError, match="不合理|不可信"):
-        solve_from_body(_body_observations(T_wrong), pitch_down_deg=39.0)
+def test_body_calibration_rejects_points_that_are_not_the_arm():
+    """点云是别的东西（比如路过的人）时，贴不上模型或位置朝向离谱，要被拦下。"""
+    T = _true_extrinsic()
+    rng = np.random.default_rng(3)
+    walkers = [BodyObservation(o.skeleton, rng.uniform([-0.3, -0.2, 0.3], [0.3, 0.3, 0.7], (300, 3)))
+               for o in _body_observations(T)]
+    with pytest.raises(ValueError):
+        solve_from_body(walkers, _up_in_cam(T))
 
 
 def test_verify_body_confirms_a_correct_extrinsic_and_rejects_a_shifted_one():
@@ -399,3 +434,34 @@ def test_verify_body_confirms_a_correct_extrinsic_and_rejects_a_shifted_one():
     shifted[:3, 3] += [0.0, 0.20, 0.0]  # 偏了 20 厘米：远超容许的几厘米
     _, confirmed_bad = verify_body(shifted, skeletons, depths, (fx, fy, cx, cy))
     assert confirmed_bad < 0.3
+
+
+def test_extrinsic_follows_head_tilt_using_the_floor_normal():
+    """云台点头后，用当前地面法线把外参换算过去，同一个物理点仍映到同一个基座坐标。"""
+    T = _true_extrinsic()
+    up_ref = _up_in_cam(T)
+    ext = ArmExtrinsic(T, 0.01, 100, up_ref)
+    point_base = np.array([0.6, 0.1, 0.25])
+    cam_ref = np.linalg.inv(T) @ np.append(point_base, 1.0)
+    for tilt_deg in (-30.0, 12.0):  # 相机绕自己的左右轴（x 轴）点头
+        a = np.deg2rad(tilt_deg)
+        R_tilt = np.array([[1, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]])
+        cam_now = R_tilt @ cam_ref[:3]  # 同一个点在新相机系下的坐标
+        up_now = R_tilt @ up_ref
+        T_now = ext.at(up_now)
+        assert np.allclose(T_now[:3, :3] @ cam_now + T_now[:3, 3], point_base, atol=1e-6)
+    assert np.allclose(ext.at(None), T) and np.allclose(ArmExtrinsic(T, 0.01, 1).at(up_ref), T)
+
+
+def test_guidance_hit_is_recorded_when_wrist_camera_takes_over(world):
+    rig = world.rig
+    world.wrist_blind = {"left", "right"}
+    world.hand_in, world.point = "left", np.array([0.55, 0.30, 0.30])
+    world.step(3.0)
+    assert not rig.ctl.guidance_hits
+    world.wrist_blind = {"right"}
+    world.step(0.5)
+    hits = list(rig.ctl.guidance_hits)
+    assert len(hits) == 1 and hits[0]["arm"] == "left"
+    assert abs(hits[0]["cx"] - 0.5) < 0.1 and abs(hits[0]["cy"] - 0.5) < 0.12  # 引导得准，手在腕部画面中部
+    assert rig.ctl.snapshot()["guidance_hits"][0]["arm"] == "left"

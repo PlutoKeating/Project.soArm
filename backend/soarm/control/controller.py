@@ -19,7 +19,14 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ..calib import ArmExtrinsic, BearingSample, Calibration, CalibSession, solve_from_bearings
+from ..calib import (
+    ArmExtrinsic,
+    BearingSample,
+    Calibration,
+    CalibSession,
+    fit_floor_normal,
+    solve_from_bearings,
+)
 from ..config import ArmConfig, Config
 from ..kinematics import ARM_JOINTS, IK_JOINTS, ArmKinematics
 from .geometry import aim_offsets, wrist_ray
@@ -135,6 +142,11 @@ class Controller:
         # 深度引导：每只臂“要对准深度相机看到的手”所需的 (偏转量, 观测时刻, 转角代价)
         self._cues: dict[str, tuple[np.ndarray, float, float]] = {}
         self._cue_arm: str | None = None  # 当前由深度引导带着转的那只臂（至多一只）
+        self._floor_up: np.ndarray | None = None  # 此刻地面法线在深度相机系下的方向
+        self._floor_time = 0.0
+        # 引导效果：深度引导把臂带过去后，腕部相机第一眼看到手时，手离画面中心的偏差
+        self.guidance_hits: deque = deque(maxlen=200)
+        self._was_guided: dict[str, float] = {}  # 臂名 -> 最近一次处于深度引导的时刻
         # 外参自动标定积累的配对样本
         self.auto_samples: dict[str, list[BearingSample]] = {name: [] for name in arms}
 
@@ -723,11 +735,13 @@ class Controller:
             return
 
         if self.mode == "fused" and self._head_matches_preset():
+            self._refresh_floor(cam, now)
             for name, rt in self.arms.items():
                 ext = self.calibration.arms.get(name)
                 if ext is None or not rt.limits:
                     continue
-                point = ext.T_base_cam[:3, :3] @ hand.xyz + ext.T_base_cam[:3, 3]
+                T = ext.at(self._floor_up)
+                point = T[:3, :3] @ hand.xyz + T[:3, 3]
                 home = {j: rt.home[j] for j in ARM_JOINTS}
                 offsets = aim_offsets(self.kin, home, point, self._pan_dir, self._tilt_dir)
                 lo, hi = self._offset_limits(rt)
@@ -742,6 +756,23 @@ class Controller:
             for name in self.arms:
                 if not self.cfg.follow.single_tracker or name == self._follow_arm:
                     self._collect_auto_sample(name, hand)
+
+    def _refresh_floor(self, cam, now: float) -> None:
+        """每隔几秒从深度图重新测一次地面法线，用来把外参换算到云台当前的俯仰下。"""
+        if now - self._floor_time < 5.0 and self._floor_up is not None:
+            return
+        self._floor_time = now
+        latest = cam.latest() if hasattr(cam, "latest") else None
+        if latest is None or latest[1] is None or cam.intrinsics is None:
+            return
+        intr = cam.intrinsics
+        try:
+            up, _ = fit_floor_normal(latest[1], (intr.fx, intr.fy, intr.cx, intr.cy))
+        except ValueError:
+            return  # 这一帧看不到足够的地面（比如被人挡住），沿用上一次的
+        # 与上次相差很大时多半是误检（把墙当成了地面），不采用
+        if self._floor_up is None or float(up @ self._floor_up) > np.cos(np.deg2rad(8.0)):
+            self._floor_up = up
 
     def _pick_cue_arm(self) -> str | None:
         """深度引导交给哪只臂：只在自己腕部相机看不到手的臂里选，转角最省的优先。
@@ -853,6 +884,16 @@ class Controller:
                 rt.aim = blended
             rt.aim_t = observed_t
             rt.lost_since = None
+
+        name = rt.arm.name
+        if guided:
+            self._was_guided[name] = now
+        elif hand is not None and now - self._was_guided.pop(name, -1e9) < 0.6:
+            # 刚从深度引导切到腕部相机：记下手在腕部画面里离中心多远，这就是引导的误差
+            self.guidance_hits.append(
+                {"arm": name, "time": time.time(), "cx": round(hand.cx, 3), "cy": round(hand.cy, 3)}
+            )
+            logger.info("深度引导命中 %s：腕部画面里手在 (%.2f, %.2f)", name, hand.cx, hand.cy)
 
         if (hand is not None or guided) and rt.aim is not None:
             goal = rt.aim + rt.aim_vel * (now - rt.aim_t + f.lead_s)
@@ -1123,4 +1164,7 @@ class Controller:
                 "head": head,
                 "cameras": cams,
                 "head_camera": self.cfg.head_camera,
+                "guidance_hits": list(self.guidance_hits)[-20:],
+                "floor_pitch_deg": None if self._floor_up is None
+                else round(float(np.degrees(np.arcsin(np.clip(-self._floor_up[2], -1, 1)))), 1),
             }
