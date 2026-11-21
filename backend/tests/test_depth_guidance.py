@@ -486,3 +486,32 @@ def test_fit_floor_normal_ignores_a_bigger_wall_when_given_the_expected_up():
     assert abs(wrong @ wall_n) > 0.99  # 没有先验时认成了墙
     right, hgt = fit_floor_normal(depth, (fx, fy, cx, cy), expected_up=floor_n)
     assert np.allclose(right, floor_n, atol=0.02) and hgt == pytest.approx(height, abs=0.03)
+
+
+def test_body_calibration_with_known_yaw_is_stable_when_arm_only_appears_in_a_small_region():
+    """手臂只在一小片区域进画面时：固定朝向只解位置，换一半数据结果也基本不变。"""
+    T = _true_extrinsic()  # 这个外参的朝向偏角是 0
+    rng = np.random.default_rng(11)
+    T_inv = np.linalg.inv(T)
+    obs = []
+    for _ in range(16):
+        joints = dict(HOME)
+        joints.update({"shoulder_pan": rng.uniform(14, 28), "shoulder_lift": rng.uniform(-30, 0),
+                       "elbow_flex": rng.uniform(-10, 25), "wrist_flex": rng.uniform(-15, 5)})
+        skel = KIN.skeleton(joints)
+        pts = []
+        for a, b in zip(skel[2:-1], skel[3:]):
+            for _ in range(80):
+                axis = (b - a) / np.linalg.norm(b - a)
+                side = np.cross(axis, rng.normal(size=3))
+                side /= np.linalg.norm(side)
+                # 夹爪不是细圆柱：一侧更宽，模拟不对称
+                pts.append(a + rng.uniform(0, 1) * (b - a) + rng.uniform(0.015, 0.045) * side + [0, 0.012, 0])
+        pts = np.array(pts) + rng.normal(0, 0.004, (len(pts), 3))
+        obs.append(BodyObservation(skel, pts @ T_inv[:3, :3].T + T_inv[:3, 3]))
+    up = _up_in_cam(T)
+    full, _, _ = solve_from_body(obs, up, yaw_deg=0.0)
+    half_a, _, _ = solve_from_body(obs[::2], up, yaw_deg=0.0)
+    half_b, _, _ = solve_from_body(obs[1::2], up, yaw_deg=0.0)
+    assert np.linalg.norm(half_a[:3, 3] - half_b[:3, 3]) < 0.02
+    assert np.allclose(full[:3, 3], T[:3, 3], atol=0.03)

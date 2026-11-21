@@ -470,7 +470,8 @@ def cmd_body_calib(args: argparse.Namespace) -> int:
         }))
         np.save(out_dir / "background_depth.npy", background.astype(np.float32))
         print(f"有效姿态 {len(observations)}/{len(poses)}，原始数据已存到 {out_dir}")
-        T, rms, used = solve_from_body(observations, up_cam)
+        yaw = None if args.yaw != args.yaw else args.yaw  # nan 表示不固定
+        T, rms, used = solve_from_body(observations, up_cam, yaw_deg=yaw)
         print(f"求解：采用 {used} 个点，点到手臂表面的 RMS {rms * 1000:.0f} mm")
         print(f"  相机在 {name} 臂基座系下的位置 x={T[0, 3]:.3f} y={T[1, 3]:.3f} z={T[2, 3]:.3f} m；"
               f"光轴方向 {np.round(T[:3, 2], 2).tolist()}")
@@ -555,6 +556,8 @@ def main() -> None:
     p = sub.add_parser("body-calib", help="用机械臂自身做手眼标定（不需要人手）")
     p.add_argument("arm")
     p.add_argument("--poses", type=int, default=16)
+    p.add_argument("--yaw", type=float, default=0.0,
+                   help="相机朝向相对机械臂朝向的偏角（度），默认 0 即朝向一致；给 nan 则连它一起解")
     p.add_argument("--dry-run", action="store_true", help="只采集和求解，不保存外参")
     p.set_defaults(func=cmd_body_calib)
 

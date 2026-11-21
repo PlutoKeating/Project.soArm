@@ -225,6 +225,7 @@ def solve_from_body(
     observations: list[BodyObservation],
     up_cam: np.ndarray,
     link_radius: float = 0.025,
+    yaw_deg: float | None = None,
 ) -> tuple[np.ndarray, float, int]:
     """用机械臂自身当标定物求 T_base_cam。返回 (4x4 变换, 点到手臂表面的 RMS 距离/米, 采用的点数)。
 
@@ -235,6 +236,9 @@ def solve_from_body(
     - 两个方向的约束都要：看到的点要贴着模型；模型的夹爪处也必须有点。只有前者的话，
       模型可以沿手臂方向滑出去而不受罚。
     - 先粗解，把离模型远的点（另一只臂、路过的人）剔掉，再精解。
+    - yaw_deg 给定时连这个转角也不解，只解平移。手臂只能在相机视野里的一小片区域出现时，
+      “相机绕竖直轴转一点”和“相机平移一点”几乎分不开，硬解会差出几十度；而相机相对机械臂
+      的朝向通常是已知的（装在两臂正中、朝向一致就是 0）。
     """
     if len(observations) < 4:
         raise ValueError("至少需要 4 个姿态")
@@ -247,7 +251,8 @@ def solve_from_body(
     probes = [np.array([sk[-2] + f * (sk[-1] - sk[-2]) for f in (0.35, 0.6, 0.85, 1.0)]) for sk in skeletons]
 
     def transform(params):
-        return _rotation_from_up(up_cam, params[0]), params[1:]
+        yaw = params[0] if yaw_deg is None else np.deg2rad(yaw_deg)
+        return _rotation_from_up(up_cam, yaw), params[1:]
 
     def residuals(params, use):
         R, t = transform(params)
@@ -271,6 +276,8 @@ def solve_from_body(
                 d = np.zeros(4)
                 d[i] = steps[i]
                 J[:, i] = (residuals(params + d, use) - res) / steps[i]
+            if yaw_deg is not None:
+                J[:, 0] = 0.0  # 转角固定：不让它动
             delta = np.linalg.solve(J.T @ J + lam * np.eye(4), -J.T @ res)
             trial_res = residuals(params + delta, use)
             trial_cost = float(trial_res @ trial_res)
@@ -286,7 +293,7 @@ def solve_from_body(
 
     everything = [np.ones(len(c), bool) for c in clouds]
     best = None
-    for yaw in np.deg2rad([-40.0, -20.0, 0.0, 20.0, 40.0]):
+    for yaw in np.deg2rad([-40.0, -20.0, 0.0, 20.0, 40.0] if yaw_deg is None else [yaw_deg]):
         for x in (-0.1, 0.05, 0.2):
             for y in (-0.3, -0.15, 0.0, 0.15, 0.3):
                 for z in (0.3, 0.45, 0.6):
