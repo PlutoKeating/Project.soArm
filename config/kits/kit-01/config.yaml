@@ -1,0 +1,45 @@
+# 一号演示套机的配置起点。复制为 config/config.yaml 后，只需要再填两个腕部相机的路径。
+#
+# 这里的值都是“跟着套机走”的：控制板的 USB 序列号、深度相机的序列号、云台舵机的 ID。
+# 换一台电脑它们不变。跟着电脑走的只有腕部相机的 USB 口位，见下面的 cameras 一节。
+# 换了一套新的套机时不要用这个文件，从 config/config.example.yaml 开始。
+
+# 启动后自动进入的模式。fused = 腕部跟随 + 深度相机引导；还没有外参时用 follow
+start_mode: fused
+
+arms:
+  left:
+    port: /dev/serial/by-id/usb-1a86_USB_Single_Serial_58FA095278-if00
+    camera: wrist_left
+  right:
+    port: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5B90149940-if00
+    camera: wrist_right
+
+# 云台不交给控制台管：它只需要撑住相机不动，由舵机自己的力矩保持。
+# 断电重新上电后用下面的命令把它转回工作姿态（ID 7 左右，ID 8 俯仰）：
+#   uv run soarm-tools head-set --port /dev/serial/by-id/usb-1a86_USB_Single_Serial_5B3D040774-if00 \
+#       --pan-id 7 --tilt-id 8 --pan 2047 --tilt 1705
+head:
+  port: ""
+
+cameras:
+  # 两个腕部相机的序列号相同，只能按电脑上的 USB 口区分，所以这两项每台电脑都要重新填：
+  # 运行 uv run soarm-tools cameras，把输出的 /dev/v4l/by-path/...-usbv2-...-index0 路径填进来
+  wrist_left:
+    type: opencv
+    device: ""
+    width: 1280
+    height: 720
+    hfov_deg: 90
+  wrist_right:
+    type: opencv
+    device: ""
+    width: 1280
+    height: 720
+    hfov_deg: 90
+  head:
+    type: realsense
+    device: "215322076692"
+
+fused:
+  depth_range: [0.2, 1.3]   # 只理会深度相机 1.3 米以内的手，远处路过的人不管
