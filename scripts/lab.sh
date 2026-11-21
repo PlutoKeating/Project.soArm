@@ -15,16 +15,21 @@ state() { curl -sf -m 3 "$URL/api/state"; }
 post() { curl -sf -m 15 -X POST "$URL$1" -H 'content-type: application/json' -d "${2:-{\}}"; }
 
 summary() {
-  state | python3 -c '
+  state | python3 -c "$(cat <<'PY'
 import json, sys
 s = json.load(sys.stdin)
 arms = []
 for name, a in s["arms"].items():
-    if a.get("lent"): text = "已借出"
-    elif not a["connected"]: text = "未连接"
-    else: text = a["status"] or "已连接"
-    arms.append(f"{name}: {text}")
-print(f"模式 {s[\"mode\"]}  急停 {s[\"estop\"]}  控制环 {s[\"loop_hz\"]} Hz  |  " + "  ".join(arms))'
+    if a.get("lent"):
+        text = "已借出"
+    elif not a["connected"]:
+        text = "未连接"
+    else:
+        text = a["status"] or "已连接"
+    arms.append(name + ": " + text)
+print("模式", s["mode"], " 急停", s["estop"], " 控制环", s["loop_hz"], "Hz  | ", "  ".join(arms))
+PY
+)"
 }
 
 wait_idle() {
