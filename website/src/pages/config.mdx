@@ -4,6 +4,7 @@ title: 填写本机配置
 description: 套机自带的参数已经记录在仓库里。这一站只有两件事要做：告诉程序两个腕部相机插在哪，把云台转到工作姿态。
 ---
 import Notice from "../components/Notice.astro";
+import HeadTilt from "../components/figures/HeadTilt.astro";
 
 ## 复制套机档案
 
@@ -46,6 +47,8 @@ cameras:
 ## 把云台转到工作姿态
 
 断电时云台没有力矩，相机是垂着的。把它转到展示用的姿态：
+
+<HeadTilt to="work" />
 
 <Notice kind="moves">
 云台会从当前位置以每秒 15° 慢慢转动。转动范围内不要有线缆缠绕。

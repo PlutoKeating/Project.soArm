@@ -4,6 +4,7 @@ title: 外参标定
 description: 深度引导要知道深度相机相对两只臂在哪。标定用机械臂自己当标定物，不需要人手和标定板，每只臂约一分半钟。
 ---
 import Notice from "../components/Notice.astro";
+import HeadTilt from "../components/figures/HeadTilt.astro";
 
 <Notice kind="info" title="什么时候需要做">
 新套机第一次用，或者两只臂和相机立柱的相对位置动过。只是换了电脑、套机没动，用档案里的外参即可。
@@ -12,6 +13,8 @@ import Notice from "../components/Notice.astro";
 ## 把相机低头到标定刻度
 
 展示时相机朝前看，这个角度下看不到手臂。标定时要让它低头，能看见手臂往前伸出：
+
+<HeadTilt to="calib" />
 
 ```bash
 uv run soarm-tools head-set --port <云台串口> \

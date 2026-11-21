@@ -1,0 +1,42 @@
+---
+// 云台俯仰的侧视图：相机在立柱顶端点头。to 是动画停留的终态。
+// 位置取自一号套机的外参：相机在臂基座前方约 18 cm、上方约 42 cm。
+import ArmSide from "./ArmSide.astro";
+import Hand from "./Hand.astro";
+interface Props { to?: "work" | "calib" }
+const { to = "work" } = Astro.props;
+const s = 5, bx = 96, by = 268;
+const px = bx + 17.7 * s, py = by - 41.6 * s; // 相机转轴
+const work = 25, calib = 59;
+const end = to === "work" ? work : calib, start = to === "work" ? calib : work;
+const ray = (deg: number, len: number) => {
+  const r = (deg * Math.PI) / 180;
+  return `${px + Math.cos(r) * len} ${py + Math.sin(r) * len}`;
+};
+const arm = to === "work" ? { lift: -75, elbow: 60, wrist: 10 } : { lift: -40, elbow: 20, wrist: 10 };
+---
+<figure class="fg">
+  <svg viewBox="0 0 480 300" role="img" aria-labelledby={`tilt-t-${to}`}>
+    <title id={`tilt-t-${to}`}>{to === "work"
+      ? "云台俯仰示意：相机从低头约 59 度抬到低头约 25 度的工作姿态，视野从手臂上方移到观众伸手的区域"
+      : "云台俯仰示意：相机从工作姿态低头到约 59 度的标定姿态，视野罩住往前伸出的手臂"}</title>
+    <path class="fg-floor" d="M20 268 H460" />
+    <path class="fg-pole" d={`M${px - 26} 268 V${py} H${px}`} />
+    <ArmSide x={bx} y={by} s={s} pose={arm} />
+    {to === "work" && <Hand x={408} y={150} r={-70} />}
+    <path class="fg-lead" stroke-dasharray="4 4" d={`M${px} ${py} L${ray(work, 150)} M${px} ${py} L${ray(calib, 150)}`} />
+    <text class="fg-t fg-s" x={px + 162 * Math.cos(work * Math.PI / 180)} y={py + 162 * Math.sin(work * Math.PI / 180) + 5}>25°</text>
+    <text class="fg-t fg-s" x={px + 160 * Math.cos(calib * Math.PI / 180) + 4} y={py + 160 * Math.sin(calib * Math.PI / 180) + 12}>59°</text>
+    <g class="fg-moving">
+      <g class="fg-j" style={`transform-origin:${px}px ${py}px;--to:${end}deg;--from:${start}deg`}>
+        <path class="fg-view-d" d={`M${px} ${py} L${px + 250} ${py - 96} L${px + 250} ${py + 96} Z`} />
+        <rect class="fg-dcam" x={px - 9} y={py - 12} width="30" height="24" rx="4" />
+      </g>
+    </g>
+  </svg>
+  <ul class="fg-key">
+    <li><i style="background:var(--cobalt)"></i><span><strong>工作刻度 1705</strong>：低头约 25°，视野罩住两臂前方观众伸手的区域。展示时用。</span></li>
+    <li><i style="background:var(--cobalt)"></i><span><strong>标定刻度 2087</strong>：低头约 59°，能看见手臂往前伸出。只在手眼标定时用。</span></li>
+  </ul>
+  <figcaption>侧视图，一号套机的数值。相机装在两臂之间、基座前上方的立柱上；刻度每减小 11.4，相机抬头 1°。</figcaption>
+</figure>

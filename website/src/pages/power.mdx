@@ -4,6 +4,8 @@ title: 接线与上电
 description: 把三块控制板、三台相机接到电脑上并通电，确认每个舵机都有应答。这一站只读取，不会让机械臂动。
 ---
 import Notice from "../components/Notice.astro";
+import Wiring from "../components/figures/Wiring.astro";
+import ArmJoints from "../components/figures/ArmJoints.astro";
 
 ## 核对电压
 
@@ -20,6 +22,8 @@ STS3215 舵机有 7.4 V 和 12 V 两种版本。一号套机的舵机都是 7.4 
 | 两个腕部相机 | 电脑 USB 2 口 | 记住各自插在哪个口，之后别换 |
 | 深度相机 | 电脑 **USB 3** 口 | 接在 USB 2 口上打不开深度流 |
 
+<Wiring />
+
 通电前把两只臂摆在自然收拢的位置。通电后舵机没有力矩，手臂保持无力状态，这是正常的。
 
 ## 确认舵机都有应答
@@ -32,6 +36,8 @@ uv run soarm-tools scan
 
 - 两个串口各有 **6 个舵机，ID 1–6**：这是两只机械臂。
 - 一个串口有 **2 个舵机**：这是云台。一号套机上是 ID 7（左右）和 ID 8（俯仰）。
+
+<ArmJoints />
 
 把云台那个串口的路径记下来，下一站要用。
 

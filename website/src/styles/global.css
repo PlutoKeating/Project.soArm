@@ -101,6 +101,7 @@ a:hover { text-decoration-thickness: 2px; }
 .swatch.site { background: var(--green); }
 .swatch.ref { background: var(--cobalt); }
 .side-foot { margin: auto 0 0; padding-top: 1.25rem; font-size: 0.875rem; }
+.side-foot { color: var(--on-enamel-2); line-height: 1.7; }
 .side-foot a { color: var(--on-enamel-2); }
 .side-foot a:hover { color: var(--on-enamel); }
 
@@ -205,6 +206,54 @@ figure svg { display: block; width: 100%; height: auto; }
 .fig-key { display: none; }
 figcaption { margin-top: 0.75rem; font-size: 0.9375rem; line-height: 1.6; color: var(--ink-2); }
 
+/* ---------------------------------------------------------------- 示意图
+   图里只放最少的字，说明放在图下方的图例里，这样在手机上也看得清。
+   画法：墨色的连杆和基座，白环是关节；红色是腕部相机，蓝色是深度相机，琥珀色是人的手。 */
+.fg svg { max-width: var(--fg-w, 34rem); margin-inline: auto; overflow: visible; }
+.fg-t { font: 500 16px var(--sans); fill: var(--ink); }
+.fg-b { font-weight: 700; }
+.fg-s { font-size: 14px; fill: var(--ink-2); }
+.fg-on { fill: #fff; }
+.fg-floor { stroke: var(--ink); stroke-width: 2; fill: none; }
+.fg-link { stroke: var(--ink); stroke-width: 9; stroke-linecap: round; fill: none; }
+.fg-base, .fg-grip { fill: var(--ink); }
+.fg-joint { fill: var(--porcelain); stroke: var(--ink); stroke-width: 3; }
+.fg-wcam { fill: var(--scarlet); stroke: var(--porcelain); stroke-width: 2; }
+.fg-dcam { fill: var(--cobalt); stroke: var(--porcelain); stroke-width: 2; }
+.fg-pole { stroke: var(--ink-2); stroke-width: 6; stroke-linecap: round; fill: none; }
+.fg-view-d { fill: var(--cobalt); opacity: 0.14; }
+.fg-view-w { fill: var(--scarlet); opacity: 0.18; }
+.fg-ray-d { stroke: var(--cobalt); stroke-width: 2; stroke-dasharray: 6 5; fill: none; }
+.fg-ray-w { stroke: var(--scarlet); stroke-width: 2; stroke-dasharray: 6 5; fill: none; }
+.fg-hand { fill: var(--amber); stroke: var(--ink); stroke-width: 2; stroke-linejoin: round; }
+.fg-lead, .fg-dim { stroke: var(--ink-2); stroke-width: 1.2; fill: none; }
+.fg-arrow { stroke: var(--ink-2); stroke-width: 2.5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.fg-id { fill: var(--enamel); stroke: var(--porcelain); stroke-width: 2; }
+.fg-idn { font: 700 14px var(--sans); fill: #fff; }
+.fg-ghost { opacity: 0.22; }
+.fg-box { fill: var(--paper); stroke: var(--ink); stroke-width: 2; }
+.fg-wire { stroke: var(--ink); stroke-width: 2.5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+.fg-power { stroke: var(--amber); }
+.fg-dim-arm .fg-link { stroke: var(--rule); } .fg-dim-arm .fg-base, .fg-dim-arm .fg-grip { fill: var(--rule); }
+.fg-j { transform: rotate(var(--to)); transform-box: view-box; }
+.fg-key { display: grid; gap: 0.3rem 1.5rem; margin: 1rem 0 0; padding: 0; list-style: none; font-size: 0.9375rem; line-height: 1.5; }
+.fg-key.cols { grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); }
+.fg-key li { margin: 0; display: flex; gap: 0.6rem; align-items: baseline; }
+.fg-key b { flex: none; min-width: 1.5rem; height: 1.5rem; border-radius: 50%; background: var(--enamel); color: #fff; font-size: 0.8125rem; display: inline-grid; place-items: center; transform: translateY(0.1rem); }
+.fg-key i { flex: none; width: 0.8rem; height: 0.8rem; border-radius: 50%; transform: translateY(0.05rem); }
+.fg-key code { color: var(--ink-2); background: none; padding: 0; }
+
+/* 动画：都在两个状态之间来回，两头各停一会儿。系统要求减少动态效果时停在终态 */
+@media (prefers-reduced-motion: no-preference) {
+  .fg-moving .fg-j { animation: fg-pose 6s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
+  .fg-anim { animation: var(--fg-name) var(--fg-dur, 6s) cubic-bezier(0.65, 0, 0.35, 1) infinite; transform-box: view-box; }
+}
+@keyframes fg-pose {
+  0%, 18% { transform: rotate(var(--from)); }
+  50%, 78% { transform: rotate(var(--to)); }
+  100% { transform: rotate(var(--from)); }
+}
+
 /* 首页的线路表 */
 .routes { list-style: none; padding: 0 !important; margin: 0 0 2rem; display: grid; gap: 0; }
 .routes li { margin: 0; border-top: 1px solid var(--rule); }
@@ -225,6 +274,8 @@ figcaption { margin-top: 0.75rem; font-size: 0.9375rem; line-height: 1.6; color:
 .onward a span { font-size: 1.375rem; font-weight: 800; line-height: 1.3; }
 .onward a:hover span { text-decoration: underline; text-decoration-thickness: 3px; text-underline-offset: 0.2em; text-decoration-color: var(--line); }
 .onward .next { text-align: right; }
+
+.credit { max-width: 44rem; margin-top: 3rem; font-size: 0.875rem; color: var(--ink-2); }
 
 /* ---------------------------------------------------------------- 小屏幕：线路牌收成顶栏 */
 @media (max-width: 61.99rem) {
@@ -247,7 +298,7 @@ figcaption { margin-top: 0.75rem; font-size: 0.9375rem; line-height: 1.6; color:
   .doc h2 { margin-top: 3rem; font-size: 1.4375rem; }
   /* 示意图放大到只看中间的图形，标注改用图下方的图例 */
   figure { overflow: hidden; }
-  figure svg { width: 165%; max-width: none; margin-left: -32.5%; }
+  figure svg.kit { width: 165%; max-width: none; margin-left: -32.5%; }
   figure svg .lbl { display: none; }
   .fig-key { display: grid; gap: 0.35rem; margin: 0.75rem 0 0; padding: 0; list-style: none; font-size: 0.9375rem; line-height: 1.5; }
   .fig-key i { display: inline-block; width: 0.8rem; height: 0.8rem; border-radius: 50%; margin-right: 0.5rem; }
@@ -268,6 +319,7 @@ figcaption { margin-top: 0.75rem; font-size: 0.9375rem; line-height: 1.6; color:
 }
 @media print {
   .side, .onward, .copy { display: none; }
+  .fg-moving .fg-j, .fg svg * { animation: none !important; }
   main { margin: 0; padding: 0; }
   pre { background: #fff !important; color: #000; border: 1px solid #000; }
 }

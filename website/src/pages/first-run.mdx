@@ -4,6 +4,10 @@ title: 首次启动与验证
 description: 机械臂第一次动起来。按顺序逐项验证，每一步都知道它会怎么动，手一直放在空格键上。
 ---
 import Notice from "../components/Notice.astro";
+import LeftRight from "../components/figures/LeftRight.astro";
+import Follow from "../components/figures/Follow.astro";
+import Guide from "../components/figures/Guide.astro";
+import Poses from "../components/figures/Poses.astro";
 
 <Notice kind="moves" title="从这一站开始机械臂会动">
 清空两只臂周围半米内的东西，人站在侧面。<kbd>空格</kbd> 是急停：目标冻结在当前位置，舵机保持力矩不掉。
@@ -23,6 +27,8 @@ uv run soarm-console --mode idle
 
 把手放到**左臂**的夹爪前面。“左”按机器人自己的朝向算，也就是你站在机械臂身后时的左手边。
 
+<LeftRight />
+
 手应该出现在“左臂腕部”的画面里。出现在右边的话，把 `config/config.yaml` 里两个腕部相机的 `device` 对调，重启控制台。
 
 ## 一次只动一只臂
@@ -33,11 +39,15 @@ uv run soarm-console --mode idle
 
 按 <kbd>G</kbd>。手臂用两三秒展开到初始位：夹爪水平朝前，离基座约 26 cm。
 
+<Poses />
+
 你应该看到：腕部相机的画面是正的，画面下方能看到夹爪。
 
 ## 腕部跟随
 
 按 <kbd>2</kbd>。把手伸到腕部相机前 30–40 cm，慢慢向各个方向移动。
+
+<Follow />
 
 | 应该看到 | 不对的话 |
 |---|---|
@@ -48,6 +58,8 @@ uv run soarm-console --mode idle
 ## 深度引导
 
 按 <kbd>3</kbd>。把手伸到深度相机看得见、腕部相机看不见的位置，比如两只臂正前方半米、偏高一些。
+
+<Guide />
 
 你应该看到：离手近的那只臂转过去，把手带进它的腕部画面，然后一直跟着。
 

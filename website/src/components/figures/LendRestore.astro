@@ -1,0 +1,39 @@
+---
+// 三个状态：全量展示 → 借出一只臂 → 恢复。每格里是两只臂的俯视小图。
+const panels = [
+  { x: 14, title: "全量展示", right: "show" },
+  { x: 174, title: "借出右臂", right: "lent" },
+  { x: 334, title: "恢复展示", right: "show" },
+];
+---
+<figure class="fg">
+  <svg viewBox="0 0 480 190" role="img" aria-labelledby="lend-t lend-d">
+    <title id="lend-t">借臂与恢复</title>
+    <desc id="lend-d">三个状态。全量展示：两只臂都在展示。借出右臂：左臂照常展示，右臂停在原位交给试验程序。恢复展示：右臂被接管回来，两只臂都在展示。</desc>
+    {panels.map((p) => (
+      <g>
+        <rect class="fg-box" x={p.x} y="14" width="132" height="132" rx="8" style="stroke:var(--rule)" />
+        <g>
+          <path class="fg-link" d={`M${p.x + 40} 112 V58`} /><circle class="fg-wcam" cx={p.x + 40} cy="56" r="7" />
+          <rect class="fg-base" x={p.x + 26} y="100" width="28" height="28" rx="4" />
+        </g>
+        <g class:list={[{ lent: p.right === "lent" }]}>
+          <path class="fg-link" d={`M${p.x + 92} 112 V58`} /><circle class="fg-wcam" cx={p.x + 92} cy="56" r="7" />
+          <rect class="fg-base" x={p.x + 78} y="100" width="28" height="28" rx="4" />
+        </g>
+        {p.right === "lent" && <text class="fg-t fg-s" x={p.x + 92} y="40" text-anchor="middle">试验</text>}
+        <text class="fg-t fg-b" x={p.x + 66} y="174" text-anchor="middle">{p.title}</text>
+      </g>
+    ))}
+    <path class="fg-arrow" d="M150 80 H170 m-7 -6 l7 6 l-7 6" /><path class="fg-arrow" d="M310 80 H330 m-7 -6 l7 6 l-7 6" />
+  </svg>
+  <ul class="fg-key">
+    <li><i style="background:var(--ink)"></i><span><code>scripts/lab.sh lend right</code>：右臂停在原位、力矩不变，交给试验程序；左臂照常展示。</span></li>
+    <li><i style="background:var(--ink)"></i><span><code>scripts/lab.sh restore</code>：试验程序退出，右臂被接管回来，几秒完成。</span></li>
+  </ul>
+</figure>
+<style>
+  .lent .fg-link { stroke: var(--amber); stroke-dasharray: 2 12; }
+  .lent .fg-base { fill: var(--amber); }
+  .lent .fg-wcam { fill: var(--porcelain); stroke: var(--amber); }
+</style>

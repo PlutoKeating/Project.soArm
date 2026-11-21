@@ -175,6 +175,8 @@ uv run pytest
 
 手臂伸出时有约 2–3 cm 的重力下垂，逆解没有补偿它。细节见 [docs/devices/VERIFIED.md](docs/devices/VERIFIED.md)。
 
-## 许可
+## 署名与许可
 
-[MIT](LICENSE)。随仓库分发的第三方内容见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+本项目由 **PlutoKeating** 开发于 2026 年 11 月 21 日。
+
+以 [MIT](LICENSE) 许可开源。随仓库分发的第三方内容见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

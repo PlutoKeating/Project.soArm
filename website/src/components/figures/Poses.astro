@@ -1,0 +1,23 @@
+---
+import ArmSide from "./ArmSide.astro";
+const rest = { lift: -100, elbow: 90, wrist: 72 };
+const home = { lift: -75, elbow: 60, wrist: 10 };
+---
+<figure class="fg">
+  <svg viewBox="0 0 480 250" role="img" aria-labelledby="poses-t poses-d">
+    <title id="poses-t">休息位与初始位</title>
+    <desc id="poses-d">侧视图。左边是休息位：手臂折叠收拢，夹爪朝下。右边是初始位：夹爪水平朝前，离基座约 26 厘米。动画展示手臂在两个姿态之间展开和收回。</desc>
+    <path class="fg-floor" d="M10 206 H470" />
+    <ArmSide x={52} y={206} s={6.4} pose={rest} />
+    <text class="fg-t fg-b" x="90" y="236" text-anchor="middle">休息位</text>
+    <path class="fg-arrow" d="M196 120 H236 m-9 -7 l9 7 l-9 7" />
+    <ArmSide x={292} y={206} s={6.4} pose={home} from={rest} />
+    <text class="fg-t fg-b" x="370" y="236" text-anchor="middle">初始位</text>
+  </svg>
+  <ul class="fg-key">
+    <li><i style="background:var(--ink)"></i><span><strong>休息位</strong>：手臂折叠收拢。上电时、收摊后都是这个姿态，释放力矩也不会摔。</span></li>
+    <li><i style="background:var(--ink)"></i><span><strong>初始位</strong>：按 <kbd>G</kbd> 展开。夹爪水平朝前，离基座约 26 cm、高约 22 cm。</span></li>
+    <li><i style="background:var(--scarlet)"></i><span>红色方块是腕部相机，装在夹爪上方。</span></li>
+  </ul>
+  <figcaption>侧视图，按真实连杆长度和关节角度绘制。</figcaption>
+</figure>

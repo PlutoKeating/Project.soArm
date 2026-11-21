@@ -1,0 +1,55 @@
+---
+// 深度引导的俯视图，5 px/cm。位置取自一号套机的外参：两臂基座相距约 29 cm，
+// 深度相机在两臂之间、基座前方约 18 cm。手在右臂右前方，右臂向右转约 24° 对准它。
+import Hand from "./Hand.astro";
+const lx = 150, rx = 293, by = 286, len = 128;
+const dx = 208, dy = by - 88;     // 深度相机
+const hx = rx + 100, hy = by - 225; // 手
+const pan = 24;
+---
+<figure class="fg">
+  <svg viewBox="0 0 480 320" role="img" aria-labelledby="guide-t guide-d">
+    <title id="guide-t">深度引导的三步</title>
+    <desc id="guide-d">俯视图。第一步，手出现在两个腕部相机都看不到的位置，深度相机在大视野里发现它。第二步，离手近的那只臂转过去。第三步，手进入这只臂的腕部相机视野，由腕部相机接管并一直跟随。</desc>
+    <path class="fg-view-d" d={`M${dx} ${dy} L${dx - 150} ${dy - 218} H${dx + 262} L${dx + 262} ${dy - 180} Z`} />
+    <path class="fg-ray-d ray" d={`M${dx} ${dy} L${hx - 12} ${hy + 10}`} />
+    <!-- 左臂：不动 -->
+    <path class="fg-link" d={`M${lx} ${by} V${by - len}`} /><circle class="fg-wcam" cx={lx} cy={by - len} r="9" />
+    <rect class="fg-base" x={lx - 24} y={by - 18} width="48" height="48" rx="6" />
+    <!-- 右臂：转向手 -->
+    <g class="turn">
+      <path class="fg-view-w cone" d={`M${rx} ${by - len} l-78 -78 h156 Z`} />
+      <path class="fg-link" d={`M${rx} ${by} V${by - len}`} /><circle class="fg-wcam" cx={rx} cy={by - len} r="9" />
+    </g>
+    <rect class="fg-base" x={rx - 24} y={by - 18} width="48" height="48" rx="6" />
+    <rect class="fg-dcam" x={dx - 18} y={dy - 9} width="36" height="18" rx="4" />
+    <Hand x={hx} y={hy} r={-20} />
+    <g class="n n1"><circle class="fg-id" cx={dx + 78} cy={dy - 92} r="13" /><text class="fg-t fg-idn" x={dx + 78} y={dy - 87} text-anchor="middle">1</text></g>
+    <g class="n n2"><circle class="fg-id" cx={rx + 52} cy={by - 60} r="13" /><text class="fg-t fg-idn" x={rx + 52} y={by - 55} text-anchor="middle">2</text></g>
+    <g class="n n3"><circle class="fg-id" cx={hx + 34} cy={hy + 44} r="13" /><text class="fg-t fg-idn" x={hx + 34} y={hy + 49} text-anchor="middle">3</text></g>
+  </svg>
+  <ol class="fg-key">
+    <li><b>1</b><span>手出现在两个腕部相机都看不到的地方。<strong>深度相机</strong>视野大，先发现它，并测出它的 3D 位置。</span></li>
+    <li><b>2</b><span>转角最省的那只臂转过去，把自己的腕部相机对准手。</span></li>
+    <li><b>3</b><span>手一进入<strong>腕部相机</strong>的视野，就由腕部相机接管，机械臂一直跟着手。</span></li>
+  </ol>
+  <figcaption>俯视图，位置关系取自一号套机的标定结果。蓝色是深度相机的视野，红色是腕部相机的视野。</figcaption>
+</figure>
+<style define:vars={{ pan: `${pan}deg` }}>
+  .turn { transform-box: view-box; transform-origin: 293px 286px; transform: rotate(var(--pan)); }
+  .ray { opacity: 0.35; }
+  @media (prefers-reduced-motion: no-preference) {
+    .turn { animation: guide-turn 9s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
+    .ray { animation: guide-ray 9s linear infinite; }
+    .cone { animation: guide-cone 9s linear infinite; }
+    .n1 { animation: guide-n1 9s linear infinite; }
+    .n2 { animation: guide-n2 9s linear infinite; }
+    .n3 { animation: guide-n3 9s linear infinite; }
+  }
+  @keyframes guide-turn { 0%, 30% { transform: rotate(0deg); } 55%, 92% { transform: rotate(var(--pan)); } 100% { transform: rotate(0deg); } }
+  @keyframes guide-ray { 0%, 6% { opacity: 0; } 12%, 56% { opacity: 1; } 64%, 100% { opacity: 0.2; } }
+  @keyframes guide-cone { 0%, 54% { opacity: 0.05; } 62%, 92% { opacity: 0.3; } 100% { opacity: 0.05; } }
+  @keyframes guide-n1 { 0%, 6% { opacity: 0.25; } 12%, 30% { opacity: 1; } 36%, 100% { opacity: 0.25; } }
+  @keyframes guide-n2 { 0%, 30% { opacity: 0.25; } 36%, 56% { opacity: 1; } 62%, 100% { opacity: 0.25; } }
+  @keyframes guide-n3 { 0%, 56% { opacity: 0.25; } 62%, 92% { opacity: 1; } 100% { opacity: 0.25; } }
+</style>
