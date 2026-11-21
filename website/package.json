@@ -2,6 +2,7 @@
   "name": "soarm-docs",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "description": "SO-ARM 双臂演示控制台的上手文档站点",
   "engines": { "node": ">=22.23.4" },

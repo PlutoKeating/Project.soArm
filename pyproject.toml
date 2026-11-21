@@ -3,6 +3,8 @@ name = "soarm-console"
 version = "0.1.0"
 description = "双臂 SO-101 演示控制台：键盘笛卡尔控制、腕部相机手部对准跟随、深度相机全局引导"
 requires-python = ">=3.12,<3.13"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 dependencies = [
     "lerobot[feetech]==0.7.0",
     "mediapipe>=0.10.21",
