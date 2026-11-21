@@ -193,6 +193,10 @@ function render() {
       headStatus.classList.add(head.matches_preset ? "ok" : "bad");
     }
   }
+  if (state.mode === "fused" && !state.depth_guidance_ready) {
+    headStatus.className = "arm-status bad";
+    headStatus.textContent = "深度引导未生效：未标定，或深度相机姿态与标定时不符";
+  }
   $("#head-readout").innerHTML = head && head.pos.pan !== undefined
     ? `<div><span>云台左右 (°)</span><b>${head.pos.pan.toFixed(1)}</b></div>
        <div><span>云台上下 (°)</span><b>${head.pos.tilt.toFixed(1)}</b></div>`

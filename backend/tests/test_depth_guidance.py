@@ -562,3 +562,24 @@ def test_auto_samples_survive_a_restart(tmp_path):
     assert np.allclose(again.ctl.auto_samples["left"][0].cam_point, sample.cam_point)
     again.ctl.calib_auto_clear("left")
     assert Rig(tmp_path).ctl.auto_samples["left"] == []
+
+
+def test_depth_guidance_stops_when_camera_pose_can_no_longer_be_confirmed(world):
+    """外参带地面方向时：确认不了相机还在标定姿态（比如云台掉电下垂），就不再用深度引导。"""
+    rig = world.rig
+    up = np.array([0.0, -0.9, -0.43])
+    for ext in rig.ctl.calibration.arms.values():
+        ext.up_cam = up / np.linalg.norm(up)
+    world.wrist_blind = {"left", "right"}
+    world.hand_in, world.point = "left", np.array([0.55, 0.30, 0.30])
+    # 假相机给不出深度图，地面一直确认不了
+    world.step(2.0)
+    assert rig.ctl._cue_arm is None and rig.at_home("left")
+    assert not rig.ctl.snapshot()["depth_guidance_ready"]
+    # 确认过一次之后生效
+    rig.ctl._floor_ok_time = rig.now
+    world.step(2.0)
+    assert rig.ctl._cue_arm == "left" and rig.ctl.snapshot()["depth_guidance_ready"]
+    # 之后 30 秒以上再也确认不了：停用，臂回初始位
+    world.step(34.0)
+    assert rig.ctl._cue_arm is None and rig.at_home("left")

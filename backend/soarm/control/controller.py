@@ -145,6 +145,7 @@ class Controller:
         self._cue_arm: str | None = None  # 当前由深度引导带着转的那只臂（至多一只）
         self._floor_up: np.ndarray | None = None  # 此刻地面法线在深度相机系下的方向
         self._floor_time = 0.0
+        self._floor_ok_time: float | None = None  # 最近一次确认“地面方向与标定时相符”的时刻
         # 引导效果：深度引导把臂带过去后，腕部相机第一眼看到手时，手离画面中心的偏差
         self.guidance_hits: deque = deque(maxlen=200)
         self._was_guided: dict[str, float] = {}  # 臂名 -> 最近一次处于深度引导的时刻
@@ -473,7 +474,10 @@ class Controller:
             self._keys = set()
         return self._keys
 
+    _tick_now = 0.0  # 最近一拍的时刻，状态快照里判断时效用
+
     def _tick(self, dt: float, now: float) -> None:
+        self._tick_now = now
         keys = self._active_keys(now)
         if self.mode == "fused" and self.cfg.fused.reach and not self.estop:
             self._fused_select()
@@ -731,12 +735,13 @@ class Controller:
         self._cues = {}
         fc = self.cfg.fused
         cam = self.cameras.get(self.cfg.head_camera)
+        if cam is not None and self.mode == "fused":
+            self._refresh_floor(cam, now)  # 没有手的时候也要持续确认相机姿态
         hand = cam.primary_hand(max_age_s=fc.cue_max_age_s) if cam else None
         if hand is None or hand.xyz is None or not (fc.depth_range[0] <= hand.xyz[2] <= fc.depth_range[1]):
             return
 
-        if self.mode == "fused" and self._head_matches_preset():
-            self._refresh_floor(cam, now)
+        if self.mode == "fused" and self._head_matches_preset() and self._camera_pose_trusted(now):
             for name, rt in self.arms.items():
                 ext = self.calibration.arms.get(name)
                 if ext is None or not rt.limits:
@@ -775,6 +780,18 @@ class Controller:
         except ValueError:
             return
         self._floor_up = up
+        self._floor_ok_time = now
+
+    def _camera_pose_trusted(self, now: float) -> bool:
+        """深度相机是否还在标定时的姿态附近。
+
+        云台掉电下垂或被碰歪后，地面方向会和标定时对不上，外参随之失效。只有最近确认过
+        地面方向相符才信任外参；长时间确认不了就停用深度引导，而不是带着错误的外参去指。
+        外参没有记录地面方向（手动点选标定的）时无从判断，默认信任。
+        """
+        if not any(e.up_cam is not None for e in self.calibration.arms.values()):
+            return True
+        return self._floor_ok_time is not None and now - self._floor_ok_time < 30.0
 
     def _pick_cue_arm(self) -> str | None:
         """深度引导交给哪只臂：只在自己腕部相机看不到手的臂里选，转角最省的优先。
@@ -1214,6 +1231,8 @@ class Controller:
                 "cameras": cams,
                 "head_camera": self.cfg.head_camera,
                 "guidance_hits": list(self.guidance_hits)[-20:],
+                "depth_guidance_ready": self.mode == "fused" and bool(self.calibration.arms)
+                and self._camera_pose_trusted(self._tick_now),
                 "floor_pitch_deg": None if self._floor_up is None
                 else round(float(np.degrees(np.arcsin(np.clip(-self._floor_up[2], -1, 1)))), 1),
             }
