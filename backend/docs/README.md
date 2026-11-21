@@ -13,6 +13,8 @@ Python 包 `soarm`，位于 `backend/soarm/`。依赖由仓库根目录的 `pypr
 | `uv run soarm-tools cameras` | 列出相机并保存快照 |
 | `uv run soarm-tools watch <arm> [--once]` | 只读：显示该臂的行程限位并实时显示关节角度 |
 | `uv run soarm-tools calibrate <arm>` | 运行 LeRobot 标准校准流程，结果写入舵机（一般不需要） |
+| `uv run soarm-tools body-calib <arm>` | 用机械臂自身做手眼粗标定（不需要人手） |
+| `scripts/trial.sh start\|stop\|status` | 借一只臂在本 worktree 里做真机试运行 |
 | `uv run soarm-tools collect-calib [--prod URL]` | 旁路采集外参标定样本，不打断运行中的控制台 |
 | `uv run soarm-tools solve-calib [样本文件]` | 用旁路采集的样本离线求解外参 |
 | `uv run soarm-tools head-watch` | 释放云台力矩并显示原始刻度 |
